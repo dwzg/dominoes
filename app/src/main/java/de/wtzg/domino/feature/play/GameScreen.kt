@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,6 +85,8 @@ fun GameScreen(
     actions: GameActions,
     haptics: Boolean,
     onBack: () -> Unit,
+    /** Grey out your tiles while someone else is to move. */
+    dimHandWhileWaiting: Boolean = true,
     /** The overlay's second button (e.g. "Change game"). */
     onOverlaySecondary: () -> Unit = {},
     /** Extra items for the top bar, e.g. a menu. */
@@ -136,7 +139,7 @@ fun GameScreen(
                             Messages(table, compact = short)
                         }
                         StatusRow(table, actions, compact = short)
-                        Hand(table, actions, compact = short, maxHalf = 44.dp)
+                        Hand(table, actions, compact = short, maxHalf = 44.dp, dimWhileWaiting = dimHandWhileWaiting)
                     }
                 }
             } else {
@@ -163,7 +166,7 @@ fun GameScreen(
                     Column(Modifier.padding(horizontal = 12.dp)) {
                         Messages(table, compact = true)
                         StatusRow(table, actions, compact = true)
-                        Hand(table, actions, compact = true, maxHalf = 44.dp)
+                        Hand(table, actions, compact = true, maxHalf = 44.dp, dimWhileWaiting = dimHandWhileWaiting)
                     }
                 }
             }
@@ -313,6 +316,8 @@ private fun Table(
             caption = if (showTitle) table.title else null,
             modifier = Modifier.fillMaxSize(),
         )
+        // A new hand starts on an empty table: shuffle before the tiles are dealt.
+        ShuffleAnimation(active = table.board.isEmpty && table.overlay == null)
         table.overlay?.let { o ->
             Box(
                 Modifier
@@ -455,7 +460,13 @@ private fun StatusRow(table: TableUi, actions: GameActions, compact: Boolean = f
 /** Your tiles in one row; they shrink a little when you hold many, and only wrap as a last resort. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Hand(table: TableUi, actions: GameActions, compact: Boolean = false, maxHalf: Dp = 28.dp) {
+private fun Hand(
+    table: TableUi,
+    actions: GameActions,
+    compact: Boolean = false,
+    maxHalf: Dp = 28.dp,
+    dimWhileWaiting: Boolean = true,
+) {
     val hand = table.hand
     val gap = if (hand.size > 9) 4.dp else 6.dp
     BoxWithConstraints(
@@ -463,6 +474,11 @@ private fun Hand(table: TableUi, actions: GameActions, compact: Boolean = false,
             .fillMaxWidth()
             .padding(vertical = if (compact) 4.dp else 10.dp),
     ) {
+        // A fresh deal waits for the shuffle, and gets new tiles even if one is the
+        // same as last hand's, so every tile deals in again.
+        val newHand = table.board.isEmpty
+        var deal by remember { mutableIntStateOf(0) }
+        LaunchedEffect(newHand) { if (newHand) deal++ }
         val n = hand.size.coerceAtLeast(1)
         // 1dp of slack so rounding never pushes the last tile onto a second row.
         val half: Dp = ((maxWidth - 1.dp - gap * (n - 1)) / n).coerceIn(18.dp, maxHalf)
@@ -472,14 +488,20 @@ private fun Hand(table: TableUi, actions: GameActions, compact: Boolean = false,
             verticalArrangement = Arrangement.spacedBy(gap),
         ) {
             hand.forEachIndexed { i, t ->
-                key(t) {
+                key(deal, t) {
                     HandTile(
                         tile = t,
                         index = i,
+                        dealDelay = if (newHand) SHUFFLE_MS else 0L,
                         half = half,
                         selected = t == table.selected,
                         hinted = t == table.hint?.move?.tile,
-                        dimmed = table.yourTurn && table.legal.none { it.tile == t },
+                        dimmed = if (table.yourTurn) {
+                            table.legal.none { it.tile == t }
+                        } else {
+                            // Someone else is to move; not at the end of a hand.
+                            dimWhileWaiting && table.overlay == null
+                        },
                         onClick = { actions.tapTile(t) },
                     )
                 }
@@ -490,10 +512,19 @@ private fun Hand(table: TableUi, actions: GameActions, compact: Boolean = false,
 
 /** A tile in your hand: deals in with a little stagger and lifts when selected. */
 @Composable
-private fun HandTile(tile: Tile, index: Int, half: Dp, selected: Boolean, hinted: Boolean, dimmed: Boolean, onClick: () -> Unit) {
+private fun HandTile(
+    tile: Tile,
+    index: Int,
+    dealDelay: Long,
+    half: Dp,
+    selected: Boolean,
+    hinted: Boolean,
+    dimmed: Boolean,
+    onClick: () -> Unit,
+) {
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        delay(index * 60L)
+        delay(dealDelay + index * 60L)
         appear.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow))
     }
     val lift by animateDpAsState(if (selected) (-10).dp else 0.dp, label = "lift")
@@ -504,7 +535,8 @@ private fun HandTile(tile: Tile, index: Int, half: Dp, selected: Boolean, hinted
         highlighted = selected || hinted,
         dimmed = dimmed,
         elevation = if (selected) 8.dp else 2.dp,
-        onClick = onClick,
+        // Ignore taps until the tile has dealt in, so nothing is played unseen.
+        onClick = { if (appear.value > 0.5f) onClick() },
         modifier = Modifier.graphicsLayer {
             val p = appear.value
             alpha = p.coerceIn(0f, 1f)

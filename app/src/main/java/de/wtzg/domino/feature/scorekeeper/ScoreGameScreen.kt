@@ -5,8 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,6 +52,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -146,7 +150,8 @@ fun ScoreGameScreen(
             // Score cards, two per row
             val rows = game.players.indices.chunked(2)
             items(rows.size) { r ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Both cards in a row take the height of the taller one.
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     rows[r].forEach { p ->
                         ScoreCard(
                             name = game.players[p],
@@ -154,7 +159,8 @@ fun ScoreGameScreen(
                             game = game,
                             isLeader = p == game.leaderIndex,
                             starts = p == starter,
-                            modifier = Modifier.weight(1f),
+                            showStarter = starter != null,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
                     if (rows[r].size == 1) Spacer(Modifier.weight(1f))
@@ -281,7 +287,16 @@ private fun StarterLine(game: ScoreGame, starter: Int) {
 }
 
 @Composable
-private fun ScoreCard(name: String, total: Int, game: ScoreGame, isLeader: Boolean, starts: Boolean, modifier: Modifier) {
+private fun ScoreCard(
+    name: String,
+    total: Int,
+    game: ScoreGame,
+    isLeader: Boolean,
+    starts: Boolean,
+    /** Someone starts this round; every card keeps the line so the scores line up. */
+    showStarter: Boolean,
+    modifier: Modifier,
+) {
     val colors = if (isLeader) {
         CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -302,12 +317,14 @@ private fun ScoreCard(name: String, total: Int, game: ScoreGame, isLeader: Boole
                 )
                 if (isLeader) Icon(Icons.Default.Star, contentDescription = "Leading")
             }
-            if (starts) {
+            if (showStarter) {
                 Text(
                     "Starts this round",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
+                    // Invisible and silent on the other cards; it only keeps their layout in step.
+                    modifier = if (starts) Modifier else Modifier.alpha(0f).clearAndSetSemantics {},
                 )
             }
             Text(

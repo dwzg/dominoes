@@ -56,7 +56,9 @@ import de.wtzg.domino.data.Felt
 import de.wtzg.domino.data.Settings
 import de.wtzg.domino.data.Stats
 import de.wtzg.domino.data.ThemeMode
+import de.wtzg.domino.data.TileFace
 import de.wtzg.domino.engine.GameMode
+import de.wtzg.domino.ui.components.DominoTile
 import de.wtzg.domino.ui.components.SectionHeader
 import de.wtzg.domino.ui.components.TabTopBar
 import de.wtzg.domino.ui.components.StatTile
@@ -174,6 +176,26 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Felt.entries.forEach { f -> FeltSwatch(f, s.felt == f) { update { it.copy(felt = f) } } }
                 }
+            }
+            Setting("Tiles") {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    TileFace.entries.forEachIndexed { i, f ->
+                        SegmentedButton(
+                            selected = s.tileFace == f,
+                            onClick = { update { it.copy(tileFace = f) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, TileFace.entries.size),
+                        ) { Text(f.label) }
+                    }
+                }
+                // A sample, so you can see the style before playing.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(6 to 1, 5 to 2, 4 to 3, 0 to 0).forEach { (a, b) ->
+                        DominoTile(a, b, vertical = false, half = 22.dp, elevation = 1.dp)
+                    }
+                }
+            }
+            SwitchSetting("Grey out your tiles", "While someone else is playing", s.dimHandWhileWaiting) { v ->
+                update { it.copy(dimHandWhileWaiting = v) }
             }
             Setting("Computer speed") {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

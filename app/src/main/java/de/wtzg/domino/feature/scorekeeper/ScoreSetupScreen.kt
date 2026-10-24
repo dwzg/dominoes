@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,11 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +57,7 @@ private val ROUND_PRESETS = listOf(7, 10, 13)
 @Composable
 fun ScoreSetupScreen(
     initialPlayers: List<String>,
-    onStart: (players: List<String>, mode: ScoreMode, limit: Int) -> Unit,
+    onStart: (players: List<String>, mode: ScoreMode, limit: Int, firstStarter: Int, rotateStarter: Boolean) -> Unit,
     onShowHistory: () -> Unit,
 ) {
     val names = remember {
@@ -66,6 +69,9 @@ fun ScoreSetupScreen(
     var mode by rememberSaveable { mutableStateOf(ScoreMode.FIRST_TO_TARGET) }
     var targetText by rememberSaveable { mutableStateOf("100") }
     var roundsText by rememberSaveable { mutableStateOf("13") }
+    var starter by rememberSaveable { mutableIntStateOf(0) }
+    var rotate by rememberSaveable { mutableStateOf(false) }
+    val playerNames = names.mapIndexed { i, n -> n.trim().ifEmpty { "Player ${i + 1}" } }
 
     val limitText = if (mode == ScoreMode.FIRST_TO_TARGET) targetText else roundsText
     val limit = limitText.toIntOrNull()?.takeIf { it > 0 }
@@ -106,7 +112,15 @@ fun ScoreSetupScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (names.size > MIN_PLAYERS) {
-                        IconButton(onClick = { names.removeAt(i) }) {
+                        IconButton(onClick = {
+                            names.removeAt(i)
+                            // Keep the same person as starter, or fall back to the first player.
+                            starter = when {
+                                starter == i -> 0
+                                starter > i -> starter - 1
+                                else -> starter
+                            }
+                        }) {
                             Icon(Icons.Default.Close, contentDescription = "Remove player")
                         }
                     }
@@ -164,10 +178,38 @@ fun ScoreSetupScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+            Text("Who starts", style = MaterialTheme.typography.titleMedium)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                playerNames.forEachIndexed { i, n ->
+                    FilterChip(selected = starter == i, onClick = { starter = i }, label = { Text(n) })
+                }
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .toggleable(value = rotate, onValueChange = { rotate = it }, role = Role.Switch)
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Rotate every round", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (rotate) "The start moves to the next player each round."
+                        else "The winner of each round starts the next one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = rotate, onCheckedChange = null)
+            }
+
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    val players = names.mapIndexed { i, n -> n.trim().ifEmpty { "Player ${i + 1}" } }
-                    onStart(players, mode, limit ?: return@Button)
+                    onStart(playerNames, mode, limit ?: return@Button, starter.coerceIn(0, playerNames.lastIndex), rotate)
                 },
                 enabled = limit != null,
                 modifier = Modifier.fillMaxWidth().height(52.dp),

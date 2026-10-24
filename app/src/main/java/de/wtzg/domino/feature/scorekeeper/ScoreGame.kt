@@ -25,6 +25,10 @@ data class ScoreGame(
     val rounds: List<List<Int>> = emptyList(),
     val startedAt: Long,
     val finishedAt: Long? = null,
+    /** Who starts the first round. */
+    val firstStarter: Int = 0,
+    /** The start moves to the next player every round; otherwise the round's winner starts the next one. */
+    val rotateStarter: Boolean = false,
 ) {
     val totals: List<Int>
         get() = players.indices.map { p -> rounds.sumOf { it.getOrElse(p) { 0 } } }
@@ -52,6 +56,30 @@ data class ScoreGame(
         }
 
     val isFinished: Boolean get() = winnerIndex != null
+
+    /** Who starts the round being played now. */
+    val currentStarter: Int get() = starterOf(rounds.size)
+
+    /**
+     * Who starts round [index] (0-based). With rotation it moves one seat per round.
+     * Otherwise the previous round's winner starts; after a tied round the same player
+     * starts again.
+     */
+    fun starterOf(index: Int): Int {
+        val n = players.size
+        if (rotateStarter) return (firstStarter + index) % n
+        var starter = firstStarter.coerceIn(0, n - 1)
+        for (i in 0 until minOf(index, rounds.size)) {
+            starter = roundWinner(rounds[i]) ?: starter
+        }
+        return starter
+    }
+
+    /** The best score of a round (highest, or lowest when low wins), or null if tied. */
+    private fun roundWinner(round: List<Int>): Int? {
+        val best = if (mode == ScoreMode.FIRST_TO_TARGET) round.max() else round.min()
+        return round.indexOf(best).takeIf { round.count { it == best } == 1 }
+    }
 
     fun addRound(scores: List<Int>): ScoreGame = copy(rounds = rounds + listOf(normalize(scores)))
 

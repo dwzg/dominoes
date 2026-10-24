@@ -74,4 +74,40 @@ class ScoreGameTest {
         val g = game(mode = ScoreMode.LOWEST_AFTER_ROUNDS, limit = 13, players = 4).addRound(listOf(1, 2, 3, 4)).copy(finishedAt = 42)
         assertEquals(g, AppJson.decodeFromString(ScoreGame.serializer(), AppJson.encodeToString(ScoreGame.serializer(), g)))
     }
+
+    @Test
+    fun roundWinnerStartsTheNextRound() {
+        var g = game(players = 3).copy(firstStarter = 2)
+        assertEquals(2, g.currentStarter)
+        g = g.addRound(listOf(0, 15, 5))
+        assertEquals(1, g.currentStarter)
+        // A tied round keeps the same starter.
+        g = g.addRound(listOf(10, 0, 10))
+        assertEquals(1, g.currentStarter)
+        assertEquals(listOf(2, 1, 1), (0..2).map(g::starterOf))
+    }
+
+    @Test
+    fun lowestScoreWinsTheRoundWhenLowWins() {
+        val g = game(mode = ScoreMode.LOWEST_AFTER_ROUNDS, limit = 5, players = 3).addRound(listOf(12, 3, 7))
+        assertEquals(1, g.currentStarter)
+    }
+
+    @Test
+    fun rotatingStartMovesOneSeatPerRound() {
+        var g = game(players = 3).copy(firstStarter = 1, rotateStarter = true)
+        assertEquals(1, g.currentStarter)
+        g = g.addRound(listOf(20, 0, 0))
+        assertEquals(2, g.currentStarter)
+        g = g.addRound(listOf(20, 0, 0))
+        assertEquals(0, g.currentStarter)
+    }
+
+    @Test
+    fun oldGamesStartWithTheFirstPlayer() {
+        val old = """{"id":2,"players":["A","B"],"mode":"FIRST_TO_TARGET","limit":100,"rounds":[],"startedAt":2}"""
+        val g = AppJson.decodeFromString(ScoreGame.serializer(), old)
+        assertEquals(0, g.currentStarter)
+        assertFalse(g.rotateStarter)
+    }
 }

@@ -25,14 +25,30 @@ class ScoreKeeperViewModel(
         combine(repo.current, repo.history, repo.lastPlayers) { c, h, p -> ScoreKeeperUiState(false, c, h, p) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ScoreKeeperUiState())
 
-    fun startGame(players: List<String>, mode: ScoreMode, limit: Int) = viewModelScope.launch {
+    fun startGame(
+        players: List<String>,
+        mode: ScoreMode,
+        limit: Int,
+        firstStarter: Int = 0,
+        rotateStarter: Boolean = false,
+    ) = viewModelScope.launch {
         repo.saveLastPlayers(players)
-        commit(ScoreGame(id = clock(), players = players, mode = mode, limit = limit, startedAt = clock()))
+        commit(
+            ScoreGame(
+                id = clock(),
+                players = players,
+                mode = mode,
+                limit = limit,
+                startedAt = clock(),
+                firstStarter = firstStarter.coerceIn(0, players.lastIndex),
+                rotateStarter = rotateStarter,
+            ),
+        )
     }
 
     fun rematch() {
         val g = state.value.current ?: return
-        startGame(g.players, g.mode, g.limit)
+        startGame(g.players, g.mode, g.limit, g.firstStarter, g.rotateStarter)
     }
 
     fun addRound(scores: List<Int>) = edit { it.addRound(scores) }

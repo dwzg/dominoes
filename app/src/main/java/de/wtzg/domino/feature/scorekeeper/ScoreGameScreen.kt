@@ -1,5 +1,6 @@
 package de.wtzg.domino.feature.scorekeeper
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
@@ -57,7 +59,7 @@ import androidx.compose.ui.unit.dp
 
 private const val NEW_ROUND = -1
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ScoreGameScreen(
     game: ScoreGame,
@@ -75,6 +77,8 @@ fun ScoreGameScreen(
     var confirmNewGame by remember { mutableStateOf(false) }
     val totals = game.totals
     val winner = game.winnerIndex
+    // Who starts the round being played; nobody once the game is over.
+    val starter = if (winner == null) game.currentStarter else null
 
     Scaffold(
         topBar = {
@@ -149,6 +153,7 @@ fun ScoreGameScreen(
                             total = totals[p],
                             game = game,
                             isLeader = p == game.leaderIndex,
+                            starts = p == starter,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -165,8 +170,21 @@ fun ScoreGameScreen(
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }
+            if (starter != null || game.rounds.isNotEmpty()) {
+                // Who starts, plus names and totals, stay pinned under the top bar while
+                // the rounds scroll, so the current standing is always visible.
+                stickyHeader {
+                    Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+                        starter?.let { StarterLine(game, it) }
+                        if (game.rounds.isNotEmpty()) {
+                            RoundRow(label = "#", values = game.players, header = true)
+                            RoundRow(label = "Σ", values = totals.map { it.toString() }, header = true)
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
             if (game.rounds.isNotEmpty()) {
-                item { RoundRow(label = "#", values = game.players, header = true) }
                 itemsIndexed(game.rounds) { i, round ->
                     RoundRow(
                         label = "${i + 1}",
@@ -175,7 +193,6 @@ fun ScoreGameScreen(
                     )
                     HorizontalDivider()
                 }
-                item { RoundRow(label = "Σ", values = totals.map { it.toString() }, header = true) }
             }
         }
     }
@@ -231,8 +248,39 @@ private fun WinnerBanner(name: String, score: Int, onRematch: () -> Unit, onNewG
     }
 }
 
+/** "Round 4: Anna starts", and how the start moves on. */
 @Composable
-private fun ScoreCard(name: String, total: Int, game: ScoreGame, isLeader: Boolean, modifier: Modifier) {
+private fun StarterLine(game: ScoreGame, starter: Int) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        Column {
+            Text(
+                "Round ${game.rounds.size + 1}: ${game.players[starter]} starts",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                if (game.rotateStarter) "The start moves to the next player each round."
+                else "The winner of each round starts the next one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScoreCard(name: String, total: Int, game: ScoreGame, isLeader: Boolean, starts: Boolean, modifier: Modifier) {
     val colors = if (isLeader) {
         CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -252,6 +300,14 @@ private fun ScoreCard(name: String, total: Int, game: ScoreGame, isLeader: Boole
                     modifier = Modifier.weight(1f),
                 )
                 if (isLeader) Icon(Icons.Default.Star, contentDescription = "Leading")
+            }
+            if (starts) {
+                Text(
+                    "Starts this round",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             Text(
                 total.toString(),

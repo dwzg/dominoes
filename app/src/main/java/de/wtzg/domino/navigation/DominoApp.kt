@@ -222,7 +222,7 @@ private fun AppNavHost(
                 s.loading -> Unit
                 current == null -> ScoreSetupScreen(
                     initialPlayers = s.lastPlayers,
-                    onStart = { p, m, l -> scoresVm.startGame(p, m, l) },
+                    onStart = { p, m, l, first, rotate -> scoresVm.startGame(p, m, l, first, rotate) },
                     onShowHistory = { nav.navigate(ScoreHistoryRoute) },
                 )
                 else -> ScoreGameScreen(

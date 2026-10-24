@@ -17,6 +17,10 @@ enum class Felt(val label: String) { GREEN("Green"), BLUE("Blue"), RED("Burgundy
 @Serializable
 enum class AiSpeed(val label: String, val delayMs: Long) { RELAXED("Relaxed", 1300), NORMAL("Normal", 850), FAST("Fast", 350) }
 
+/** How the numbers on a tile are drawn. */
+@Serializable
+enum class TileFace(val label: String) { DOTS("Dots"), COLOURED_DOTS("Coloured"), NUMBERS("Numbers") }
+
 @Serializable
 data class Settings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
@@ -25,6 +29,9 @@ data class Settings(
     val felt: Felt = Felt.GREEN,
     val aiSpeed: AiSpeed = AiSpeed.NORMAL,
     val haptics: Boolean = true,
+    val tileFace: TileFace = TileFace.DOTS,
+    /** Your tiles are greyed out while someone else is to move. */
+    val dimHandWhileWaiting: Boolean = true,
     /** Coach feedback is on by default in new games. */
     val coach: Boolean = true,
     /** Online server address; empty means the one built into the app (if any). */

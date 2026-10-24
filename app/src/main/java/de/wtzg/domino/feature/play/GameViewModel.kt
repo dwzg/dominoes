@@ -261,7 +261,8 @@ class GameViewModel(
                 val g = _state.value.game ?: break
                 val m = g.match
                 if (m.isOver || m.round.isOver || m.round.turn == YOU) break
-                delay(aiSpeed.value.delayMs)
+                // On a fresh hand, let the shuffle on screen finish before the opening play.
+                delay(aiSpeed.value.delayMs + if (m.round.board.isEmpty) SHUFFLE_MS else 0L)
                 aiTurn(g)
             }
             _state.update { it.copy(aiThinking = false) }

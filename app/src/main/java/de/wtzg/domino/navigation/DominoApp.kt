@@ -179,6 +179,7 @@ private fun AppNavHost(
                     table = table,
                     actions = gameVm,
                     haptics = settings.haptics,
+                    dimHandWhileWaiting = settings.dimHandWhileWaiting,
                     onBack = { nav.popBackStack() },
                     onOverlaySecondary = {
                         gameVm.quit()
@@ -267,7 +268,7 @@ private fun AppNavHost(
             val id = e.toRoute<OnlineGameRoute>().id
             val vm = appViewModel(key = "online-$id") { OnlineGameViewModel(id, it.online) }
             val s by vm.state.collectAsStateWithLifecycle()
-            OnlineGameScreen(s, vm, haptics = settings.haptics, onBack = { nav.popBackStack() })
+            OnlineGameScreen(s, vm, haptics = settings.haptics, dimHandWhileWaiting = settings.dimHandWhileWaiting, onBack = { nav.popBackStack() })
         }
         composable<MoreRoute> {
             MoreScreen(

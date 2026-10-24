@@ -5,24 +5,46 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.data.TileFace
+import de.wtzg.domino.ui.theme.LocalTileFace
 
 private val Ivory = Color(0xFFFBF8EF)
 private val Pip = Color(0xFF263238)
+
+/** One colour per number for the coloured faces, dark enough to read on ivory. */
+private val NUMBER_COLORS = listOf(
+    Color(0xFF607D8B), // 0
+    Color(0xFFC62828), // 1
+    Color(0xFFE65100), // 2
+    Color(0xFF2E7D32), // 3
+    Color(0xFF1565C0), // 4
+    Color(0xFF6A1B9A), // 5
+    Color(0xFF4E342E), // 6
+)
+
+private fun colorOf(n: Int, face: TileFace): Color =
+    if (face == TileFace.DOTS) Pip else NUMBER_COLORS.getOrElse(n) { Pip }
 
 /** Pip positions within one square half of a tile (x, y in 0..1). */
 private val PIPS: Map<Int, List<Pair<Float, Float>>> = mapOf(
@@ -51,6 +73,7 @@ fun DominoTile(
     elevation: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
 ) {
+    val face = LocalTileFace.current
     val shape = RoundedCornerShape(half * 0.18f)
     val back = MaterialTheme.colorScheme.primary
     val ring = if (highlighted) MaterialTheme.colorScheme.tertiary else Color(0xFF9E9E9E)
@@ -66,25 +89,61 @@ fun DominoTile(
             .semantics { contentDescription = if (faceDown) "Hidden tile" else "$first-$second" },
     ) {
         if (!faceDown) {
-            Canvas(Modifier.fillMaxSize()) {
-                val h = if (vertical) size.width else size.height
-                val r = h * 0.085f
-                // Divider
-                if (vertical) {
-                    drawLine(Pip.copy(alpha = .5f), Offset(h * .15f, h), Offset(h * .85f, h), strokeWidth = h * .03f)
-                } else {
-                    drawLine(Pip.copy(alpha = .5f), Offset(h, h * .15f), Offset(h, h * .85f), strokeWidth = h * .03f)
-                }
-                listOf(first, second).forEachIndexed { i, n ->
-                    val ox = if (vertical) 0f else h * i
-                    val oy = if (vertical) h * i else 0f
-                    PIPS[n]?.forEach { (x, y) ->
-                        // Turn the pattern on horizontal tiles so a 6 shows two rows of three.
-                        val (px, py) = if (vertical) x to y else y to x
-                        drawCircle(Pip, r, Offset(ox + px * h, oy + py * h))
+            TileDivider(vertical)
+            if (face == TileFace.NUMBERS) {
+                Digits(first, second, vertical, half)
+            } else {
+                Canvas(Modifier.fillMaxSize()) {
+                    val h = if (vertical) size.width else size.height
+                    val r = h * 0.085f
+                    listOf(first, second).forEachIndexed { i, n ->
+                        val ox = if (vertical) 0f else h * i
+                        val oy = if (vertical) h * i else 0f
+                        PIPS[n]?.forEach { (x, y) ->
+                            // Turn the pattern on horizontal tiles so a 6 shows two rows of three.
+                            val (px, py) = if (vertical) x to y else y to x
+                            drawCircle(colorOf(n, face), r, Offset(ox + px * h, oy + py * h))
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** The line across the middle of a tile. */
+@Composable
+private fun TileDivider(vertical: Boolean) {
+    Canvas(Modifier.fillMaxSize()) {
+        val h = if (vertical) size.width else size.height
+        if (vertical) {
+            drawLine(Pip.copy(alpha = .5f), Offset(h * .15f, h), Offset(h * .85f, h), strokeWidth = h * .03f)
+        } else {
+            drawLine(Pip.copy(alpha = .5f), Offset(h, h * .15f), Offset(h, h * .85f), strokeWidth = h * .03f)
+        }
+    }
+}
+
+/** Both halves as coloured digits, upright whichever way the tile lies. */
+@Composable
+private fun Digits(first: Int, second: Int, vertical: Boolean, half: Dp) {
+    // Sized from the tile, not the user's font scale, so digits always fit their half.
+    val size = with(LocalDensity.current) { (half * 0.6f).toSp() }
+    val digit = @Composable { n: Int ->
+        Box(Modifier.size(half), contentAlignment = Alignment.Center) {
+            Text(
+                "$n",
+                color = NUMBER_COLORS.getOrElse(n) { Pip },
+                fontSize = size,
+                lineHeight = size,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
+    }
+    if (vertical) {
+        Column { digit(first); digit(second) }
+    } else {
+        Row { digit(first); digit(second) }
     }
 }

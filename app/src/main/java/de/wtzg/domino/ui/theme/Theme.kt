@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.wtzg.domino.data.Felt
 import de.wtzg.domino.data.ThemeMode
+import de.wtzg.domino.data.TileFace
 
 // Brand palette: billiard-table green, warm wood and brass.
 private val Light = lightColorScheme(
@@ -104,11 +105,15 @@ fun Felt.colors(): FeltColors = when (this) {
 
 val LocalFelt = staticCompositionLocalOf { Felt.GREEN.colors() }
 
+/** How tiles show their numbers: dots, coloured dots or digits. */
+val LocalTileFace = staticCompositionLocalOf { TileFace.DOTS }
+
 @Composable
 fun DominoTheme(
     theme: ThemeMode = ThemeMode.SYSTEM,
     dynamicColor: Boolean = false,
     felt: Felt = Felt.GREEN,
+    tileFace: TileFace = TileFace.DOTS,
     content: @Composable () -> Unit,
 ) {
     val dark = when (theme) {
@@ -124,7 +129,7 @@ fun DominoTheme(
         dark -> Dark
         else -> Light
     }
-    CompositionLocalProvider(LocalFelt provides felt.colors()) {
+    CompositionLocalProvider(LocalFelt provides felt.colors(), LocalTileFace provides tileFace) {
         MaterialTheme(colorScheme = colors, typography = AppTypography, shapes = AppShapes, content = content)
     }
 }

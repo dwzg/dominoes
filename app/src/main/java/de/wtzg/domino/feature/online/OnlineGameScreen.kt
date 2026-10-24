@@ -68,6 +68,7 @@ fun OnlineGameScreen(
     vm: OnlineGameActions,
     haptics: Boolean,
     onBack: () -> Unit,
+    dimHandWhileWaiting: Boolean = true,
 ) {
     // Live updates only while the screen is visible.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -92,6 +93,7 @@ fun OnlineGameScreen(
             actions = vm,
             haptics = haptics,
             onBack = onBack,
+            dimHandWhileWaiting = dimHandWhileWaiting,
             onOverlaySecondary = onBack,
             topActions = {
                 var menu by remember { mutableStateOf(false) }

@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by appVm.settings.collectAsStateWithLifecycle()
             val s = settings ?: return@setContent
-            DominoTheme(theme = s.theme, dynamicColor = s.dynamicColor, felt = s.felt) {
+            DominoTheme(theme = s.theme, dynamicColor = s.dynamicColor, felt = s.felt, tileFace = s.tileFace) {
                 Surface {
                     DominoApp(appVm, s, newIntents)
                 }

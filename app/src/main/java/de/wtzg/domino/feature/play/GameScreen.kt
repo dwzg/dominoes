@@ -317,7 +317,11 @@ private fun Table(
             modifier = Modifier.fillMaxSize(),
         )
         // A new hand starts on an empty table: shuffle before the tiles are dealt.
-        ShuffleAnimation(active = table.board.isEmpty && table.overlay == null)
+        ShuffleAnimation(
+            active = table.board.isEmpty && table.overlay == null,
+            yourTiles = table.hand.size,
+            opponentTiles = table.opponents.map { it.tiles },
+        )
         table.overlay?.let { o ->
             Box(
                 Modifier
@@ -492,7 +496,7 @@ private fun Hand(
                     HandTile(
                         tile = t,
                         index = i,
-                        dealDelay = if (newHand) SHUFFLE_MS else 0L,
+                        dealDelay = if (newHand) HAND_DEAL_MS else 0L,
                         half = half,
                         selected = t == table.selected,
                         hinted = t == table.hint?.move?.tile,

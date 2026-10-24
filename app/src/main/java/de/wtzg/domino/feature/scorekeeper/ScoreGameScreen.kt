@@ -1,5 +1,6 @@
 package de.wtzg.domino.feature.scorekeeper
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,7 +58,7 @@ import androidx.compose.ui.unit.dp
 
 private const val NEW_ROUND = -1
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ScoreGameScreen(
     game: ScoreGame,
@@ -166,7 +167,15 @@ fun ScoreGameScreen(
                 )
             }
             if (game.rounds.isNotEmpty()) {
-                item { RoundRow(label = "#", values = game.players, header = true) }
+                // Names and totals stay pinned under the top bar while the rounds scroll,
+                // so the current standing is always visible.
+                stickyHeader {
+                    Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+                        RoundRow(label = "#", values = game.players, header = true)
+                        RoundRow(label = "Σ", values = totals.map { it.toString() }, header = true)
+                        HorizontalDivider()
+                    }
+                }
                 itemsIndexed(game.rounds) { i, round ->
                     RoundRow(
                         label = "${i + 1}",
@@ -175,7 +184,6 @@ fun ScoreGameScreen(
                     )
                     HorizontalDivider()
                 }
-                item { RoundRow(label = "Σ", values = totals.map { it.toString() }, header = true) }
             }
         }
     }

@@ -235,7 +235,8 @@ private fun WinnerBanner(name: String, score: Int, onRematch: () -> Unit, onNewG
         ),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        // Full width, so the content is centred in the card rather than at its start.
+        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Star, contentDescription = null)
             Text("$name wins!", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("with $score points", style = MaterialTheme.typography.bodyMedium)

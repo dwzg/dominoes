@@ -34,6 +34,8 @@ data class Settings(
     val dimHandWhileWaiting: Boolean = true,
     /** Coach feedback is on by default in new games. */
     val coach: Boolean = true,
+    /** Your name at games on the same Wi-Fi. */
+    val playerName: String = "",
     /** Online server address; empty means the one built into the app (if any). */
     val serverUrl: String = "",
 )

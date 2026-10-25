@@ -156,7 +156,7 @@ class ServerTest {
     }
 
     @Test
-    fun leavingHandsYourSeatToTheComputer() = testApplication {
+    fun leavingDuringPlayEndsTheGame() = testApplication {
         val c = setUp()
         val ann = c.register("Ann")
         val bob = c.register("Bob")
@@ -165,11 +165,16 @@ class ServerTest {
         c.start(ann, g.id)
         assertEquals(HttpStatusCode.OK, c.act(bob, g.id, Action.Leave, 0).status)
         val v = c.view(ann, g.id)
-        assertTrue(v.seats[1].isAi)
-        assertEquals("Bob (AI)", v.seats[1].name)
-        assertTrue("it's Ann's turn now, or the game is over", v.isYourTurn || v.status == GameStatus.FINISHED)
+        assertEquals(GameStatus.FINISHED, v.status)
+        assertEquals(1, v.leftSeat)
+        assertNull("nobody wins", v.winner)
+        assertFalse("no computer took over", v.seats[1].isAi)
+        assertEquals("Bob", v.seats[1].name)
+        assertEquals(1, c.get("/games") { bearerAuth(ann.token) }.body<List<GameSummary>>().single().leftSeat)
         val bobGames: List<GameSummary> = c.get("/games") { bearerAuth(bob.token) }.body()
-        assertTrue(bobGames.isEmpty())
+        assertTrue("off the leaver's list", bobGames.isEmpty())
+        // The others can still play again.
+        assertEquals(HttpStatusCode.OK, c.post("/games/${g.id}/rematch") { bearerAuth(ann.token) }.status)
     }
 
     @Test

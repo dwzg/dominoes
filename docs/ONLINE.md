@@ -117,7 +117,11 @@ The rules for changing the protocol are at the top of
 ## How it works
 
 - **Players:** you pick a name. The server returns a random token that the app keeps; there are no passwords. Clearing the app's data means a new identity.
-- **Games:** the host creates a game and shares the 6-letter code or the invite link (`https://<server>/join/CODE`, which opens the app). Free seats get computer players when the host starts.
+- **Games:** the host creates a game and shares the 6-letter code, the invite link (`https://<server>/join/CODE`, which opens the app) or the QR code in the lobby. Free seats get computer players when the host starts.
+- **Public or private:** a game is invite only unless the host makes it open to anyone. Open games are listed for everyone on the server while they're in the lobby with a free seat; lobbies untouched for 24 hours drop off the list. Each player can list up to 3 open games at a time.
+- **Time per turn:** the host can set a limit (live: 30 seconds to 5 minutes; turn by turn: 1 to 7 days). If the player to move runs out of time, the game ends there with the scores as they stand and nobody wins. The server checks every few seconds.
+- **Leaving:** leaving the lobby frees your seat (the host leaving cancels the game). Leaving during play ends the game for everyone in the same way, and nobody wins.
+- **Rematch:** after a game ends, anyone at the table can ask for a rematch. The first to ask hosts a new lobby with the same settings, and everyone after joins it.
 - **Live games** stream updates over a WebSocket while the game is open.
 - **Turn-by-turn games:** while the app is closed, it checks every 15 minutes and notifies you when it's your turn.
 - **Fairness:** every action carries the game version it was based on, so moves made on an outdated screen are refused. Other players' tiles are never sent to your phone.
@@ -131,9 +135,13 @@ The rules for changing the protocol are at the top of
 | POST | `/players` | Register `{name}` → `{playerId, token, name}` |
 | PATCH | `/players/me` | Rename |
 | GET | `/games` | Your games |
-| POST | `/games` | Create `{mode, players, target, pace}` |
+| POST | `/games` | Create `{mode, players, target, pace, visibility, turnLimitSeconds}` (`visibility` is `PRIVATE` or `PUBLIC`, default `PRIVATE`; `turnLimitSeconds` 0 is no limit) |
+| GET | `/games/open` | Public lobbies you could join |
 | POST | `/games/join` | Join `{code}` |
 | GET | `/games/{id}` | Your view of a game |
+| POST | `/games/{id}/settings` | Host changes the game in the lobby `{mode, players, target, pace, turnLimitSeconds}`; never fewer seats than people seated |
+| POST | `/games/{id}/rematch` | Sets up or joins the rematch of a finished game |
+| POST | `/games/{id}/visibility` | Host lists or hides the lobby `{visibility}` |
 | POST | `/games/{id}/start` | Host starts `{difficulty}` |
 | POST | `/games/{id}/actions` | `{action: play/draw/pass/leave, version}` |
 | WS | `/games/{id}/live?token=` | Your view, pushed on every change |
@@ -141,3 +149,17 @@ The rules for changing the protocol are at the top of
 
 Authenticated calls send `Authorization: Bearer <token>`. Message formats are in
 `protocol/src/main/kotlin/de/wtzg/domino/protocol/Protocol.kt`.
+
+## Same Wi-Fi games
+
+Players at one table can play without this server. Under **Play → Same Wi-Fi**, one phone hosts:
+the app starts this same game server inside itself, on port 8077 (or a free port if that's
+taken), and shows a QR code with its local address, e.g. `http://192.168.1.5:8077/join/ABC234`.
+The others scan it and join over the local network.
+
+- Everyone needs to be on the same network, or on the host's hotspot. Some guest and hotel
+  networks keep devices from seeing each other; a hotspot works there.
+- Games live in memory on the hosting phone. They end when the host stops hosting or closes the app.
+- Traffic is plain HTTP on the local network, since a phone's local address can't get a
+  certificate. The app only does this for private addresses (10.x, 172.16–31.x, 192.168.x);
+  everything else stays HTTPS.

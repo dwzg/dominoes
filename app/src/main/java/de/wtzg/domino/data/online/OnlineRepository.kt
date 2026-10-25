@@ -22,20 +22,26 @@ data class OnlineAccount(val serverUrl: String, val registration: Registration?)
 /**
  * Online play: which server, who you are on it, and an [OnlineApi] to talk to it.
  * Identities are kept per server, so switching servers doesn't lose your games.
+ *
+ * [server] overrides the server from the settings: games on the same Wi-Fi use it to talk
+ * to whichever phone is hosting.
  */
 class OnlineRepository(
     private val store: DataStore<Preferences>,
     settings: SettingsRepository,
     private val client: HttpClient,
     private val defaultServer: String = BuildConfig.SERVER_URL,
+    server: Flow<String>? = null,
 ) {
     private val identitiesKey = stringPreferencesKey("online_identities")
     private val notifiedKey = stringPreferencesKey("online_notified")
     private val identities = MapSerializer(String.serializer(), Registration.serializer())
     private val notifiedMap = MapSerializer(String.serializer(), Int.serializer())
 
-    val account: Flow<OnlineAccount> = combine(settings.settings, store.data) { s, prefs ->
-        val url = KtorOnlineApi.normalize(s.serverUrl.ifBlank { defaultServer })
+    private val serverUrl: Flow<String> =
+        server?.map(KtorOnlineApi::normalize) ?: settings.settings.map { KtorOnlineApi.normalize(it.serverUrl.ifBlank { defaultServer }) }
+
+    val account: Flow<OnlineAccount> = combine(serverUrl, store.data) { url, prefs ->
         val ids = prefs[identitiesKey]?.let { runCatching { AppJson.decodeFromString(identities, it) }.getOrNull() } ?: emptyMap()
         OnlineAccount(url, ids[url])
     }

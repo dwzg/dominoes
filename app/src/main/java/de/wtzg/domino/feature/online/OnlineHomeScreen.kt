@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.Limits
+import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.ui.components.SectionHeader
 import kotlinx.coroutines.delay
@@ -134,6 +135,18 @@ fun OnlineHomeScreen(
                     }
                     item { JoinWithCode(initialCode.orEmpty(), state.busy, vm::join) }
                     item { NotificationsPermission(state.games.any { it.pace == Pace.TURN_BASED }) }
+                    if (state.publicGames) {
+                        item { SectionHeader("Open games") }
+                        if (state.openGames.isEmpty()) {
+                            item {
+                                Text(
+                                    "No open games right now. Create one open to anyone, and other players can join it from here.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        items(state.openGames, key = { "open-${it.id}" }) { g -> OpenGameRow(g, state.busy) { vm.join(g.code) } }
+                    }
                     item { SectionHeader("Your games") }
                     if (state.games.isEmpty()) {
                         item {
@@ -261,6 +274,7 @@ private fun JoinWithCode(initial: String, busy: Boolean, onJoin: (String) -> Uni
                         onCode = { scanned -> code = scanned; onJoin(scanned) },
                         onNotAnInvite = { scanProblem = "That QR code isn't a dominoes invite." },
                         onUnavailable = { scanProblem = "The QR scanner isn't available on this phone. Type the code instead." },
+                        onLocalGame = { scanProblem = "That game is hosted on a phone on the same Wi-Fi. Join it from Play, under \"Same Wi-Fi\"." },
                     )
                 },
                 enabled = !busy,
@@ -278,12 +292,44 @@ private fun NotificationsPermission(needed: Boolean) {
     LaunchedEffect(Unit) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
 }
 
+/** A public lobby: who's hosting, what they're playing, and how many seats are left. */
+@Composable
+private fun OpenGameRow(g: OpenGame, busy: Boolean, onJoin: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (g.pace == Pace.LIVE) Icons.Outlined.Bolt else Icons.Outlined.HourglassEmpty,
+                contentDescription = if (g.pace == Pace.LIVE) "Live" else "Turn by turn",
+            )
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text("${g.host}'s table", style = MaterialTheme.typography.titleMedium)
+                val free = g.seats - g.taken
+                Text(
+                    "${g.mode.title} · to ${g.target} · $free of ${g.seats} seats free",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Button(onClick = onJoin, enabled = !busy) { Text("Join") }
+        }
+    }
+}
+
 @Composable
 private fun GameRow(g: GameSummary, onClick: () -> Unit) {
     val (label, highlight) = when {
         g.status == GameStatus.LOBBY -> "Lobby · ${g.code}" to false
         g.isYourTurn -> "Your turn" to true
         g.status == GameStatus.PLAYING -> "${g.seats.getOrNull(g.turn) ?: "Someone"}'s turn" to false
+        g.timedOut != null -> (if (g.timedOut == g.yourSeat) "You ran out of time" else "${g.seats.getOrNull(g.timedOut!!) ?: "Someone"} ran out of time") to false
+        g.leftSeat != null -> "${g.seats.getOrNull(g.leftSeat!!) ?: "Someone"} left" to false
         else -> (g.winner?.let { if (it == g.yourSeat) "You won" else "${g.seats[it]} won" } ?: "Finished") to false
     }
     Card(

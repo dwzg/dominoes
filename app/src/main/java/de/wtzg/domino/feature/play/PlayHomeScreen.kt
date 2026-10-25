@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -45,6 +46,7 @@ fun PlayHomeScreen(
     onPickMode: (GameMode) -> Unit,
     onLearn: () -> Unit,
     onOnline: () -> Unit,
+    onLocal: () -> Unit,
 ) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
@@ -75,6 +77,22 @@ fun PlayHomeScreen(
                         Column(Modifier.weight(1f).padding(start = 14.dp)) {
                             Text("Play with friends", style = MaterialTheme.typography.titleMedium)
                             Text("Online, live or turn by turn. Invite with a code.", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                    }
+                }
+            }
+            item {
+                Card(
+                    onClick = onLocal,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Wifi, contentDescription = null)
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text("Same Wi-Fi", style = MaterialTheme.typography.titleMedium)
+                            Text("At one table, each on your own phone. No internet needed.", style = MaterialTheme.typography.bodyMedium)
                         }
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                     }

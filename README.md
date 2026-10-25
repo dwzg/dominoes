@@ -19,9 +19,15 @@ An Android app for playing, learning and keeping score in dominoes.
 - A match in progress is saved, so you can leave and resume it later.
 
 **Play with friends** online, live or turn by turn.
-- Invite friends with a code, a link or a QR code, and fill empty seats with computer players.
+- Invite friends with a code, a link or a QR code, or open your game to anyone on the server. Fill empty seats with computer players.
+- Pick any target score, set a time per turn, and start a rematch when the game ends.
 - In turn-by-turn games you get a notification when it's your move.
 - This needs a small game server that you host. See [docs/ONLINE.md](docs/ONLINE.md).
+
+**Same Wi-Fi**: play at one table, each on your own phone.
+- One phone hosts the game and the others join by scanning its QR code. Everyone needs to be on the same Wi-Fi, or on the host's hotspot.
+- No internet or server needed: the host's phone runs the game. Keep the app open on it while you play.
+- Works like online play otherwise: lobby settings, time per turn, rematch.
 
 **Learn**
 - 20 lessons across five sections: basics, strategy, scoring games, advanced play and Red Dead Redemption 2.

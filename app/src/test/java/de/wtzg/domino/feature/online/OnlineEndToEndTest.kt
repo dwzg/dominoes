@@ -12,6 +12,7 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.canDraw
 import de.wtzg.domino.protocol.legalMoves
 import de.wtzg.domino.protocol.mustPass
@@ -28,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -57,12 +59,113 @@ class OnlineEndToEndTest {
 
     @After fun tearDown() {
         scope.cancel()
-        server.stop(100, 500)
+        // Some tests stop the server themselves.
+        runCatching { server.stop(100, 500) }
     }
 
     private fun phone(name: String): OnlineRepository {
         val store = PreferenceDataStoreFactory.create(scope = scope) { tmp.newFile("$name.preferences_pb") }
         return OnlineRepository(store, SettingsRepository(store), onlineHttpClient(), defaultServer = url)
+    }
+
+    @Test
+    fun strangersFindPublicGamesAndJoin() = runBlocking {
+        val ann = phone("ann-public")
+        val bob = phone("bob-public")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.PUBLIC_GAMES in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+
+        val open = ann.api().create(
+            CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE, visibility = Visibility.PUBLIC),
+        )
+        val hidden = ann.api().create(CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE))
+        assertEquals(Visibility.PUBLIC, open.visibility)
+        assertEquals(listOf(open.id), bob.api().openGames().map { it.id })
+
+        // Bob joins from the list, which fills the table and takes it off.
+        val listed = bob.api().openGames().single()
+        assertEquals("Ann", listed.host)
+        assertEquals(open.id, bob.api().join(listed.code).id)
+        assertTrue(bob.api().openGames().isEmpty())
+
+        // The host can list a private lobby later, and hide it again.
+        ann.api().setVisibility(hidden.id, Visibility.PUBLIC)
+        assertEquals(listOf(hidden.id), bob.api().openGames().map { it.id })
+        assertEquals(Visibility.PRIVATE, ann.api().setVisibility(hidden.id, Visibility.PRIVATE).visibility)
+        assertTrue(bob.api().openGames().isEmpty())
+    }
+
+    @Test
+    fun hostChangesTheGameInTheLobby() = runBlocking {
+        val ann = phone("ann-settings")
+        val bob = phone("bob-settings")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.LOBBY_SETTINGS in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE))
+        bob.api().join(lobby.code)
+
+        ann.api().updateSettings(lobby.id, de.wtzg.domino.protocol.SettingsRequest(GameMode.BLOCK, 3, 60, Pace.TURN_BASED))
+        val seen = bob.api().game(lobby.id)
+        assertEquals(GameMode.BLOCK, seen.rules.mode)
+        assertEquals(3, seen.seats.size)
+        assertEquals(Pace.TURN_BASED, seen.pace)
+
+        // Only the host may change it.
+        val notHost = runCatching { bob.api().updateSettings(lobby.id, de.wtzg.domino.protocol.SettingsRequest(GameMode.DRAW, 3, 60, Pace.LIVE)) }
+        assertEquals(403, (notHost.exceptionOrNull() as OnlineException).status)
+    }
+
+    @Test
+    fun bothPlayersLandInTheSameRematch() = runBlocking {
+        val ann = phone("ann-rematch")
+        val bob = phone("bob-rematch")
+        ann.register("Ann")
+        bob.register("Bob")
+        // A custom target, and one move each so the game ends quickly once someone leaves.
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 13, pace = Pace.LIVE))
+        assertEquals(13, lobby.rules.target)
+        bob.api().join(lobby.code)
+        ann.api().start(lobby.id, Difficulty.EASY)
+        // Play until it's over: whoever is to move plays the first legal move, draws or passes.
+        var v = ann.api().game(lobby.id)
+        var steps = 0
+        while (v.status != GameStatus.FINISHED) {
+            val mover = if (v.turn == v.yourSeat) ann else bob
+            val mine = mover.api().game(lobby.id)
+            val action = when {
+                mine.legalMoves.isNotEmpty() -> Action.Play(mine.legalMoves.first())
+                mine.canDraw -> Action.Draw
+                else -> Action.Pass
+            }
+            mover.api().act(lobby.id, action, mine.version)
+            v = ann.api().game(lobby.id)
+            assertTrue("match never ends", ++steps < 2_000)
+        }
+        val first = bob.api().rematch(lobby.id)
+        assertEquals(first.id, ann.api().game(lobby.id).rematchId)
+        val second = ann.api().rematch(lobby.id)
+        assertEquals(first.id, second.id)
+        assertEquals(listOf("Bob", "Ann"), second.seats.map { it.name })
+        assertEquals(13, second.rules.target)
+    }
+
+    @Test
+    fun liveConnectionSaysWhenItDrops() = runBlocking {
+        val ann = phone("ann-live")
+        ann.register("Ann")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        val states = kotlinx.coroutines.channels.Channel<Boolean>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val api = ann.api()
+        val watching = scope.launch { api.live(lobby.id) { states.trySend(it) }.collect {} }
+        try {
+            withTimeout(10_000) { while (!states.receive()) Unit }
+            server.stop(0, 100)
+            withTimeout(10_000) { while (states.receive()) Unit }
+        } finally {
+            watching.cancel()
+        }
     }
 
     @Test

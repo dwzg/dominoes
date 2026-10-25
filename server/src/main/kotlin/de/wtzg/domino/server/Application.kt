@@ -6,10 +6,13 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.JoinRequest
 import de.wtzg.domino.protocol.ProtocolJson
 import de.wtzg.domino.protocol.ProtocolVersion
+import de.wtzg.domino.protocol.ServerFeatures
 import de.wtzg.domino.protocol.ServerInfo
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
+import de.wtzg.domino.protocol.VisibilityRequest
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -18,6 +21,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receive
@@ -33,10 +37,14 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.slf4j.event.Level
 import kotlin.time.Duration.Companion.seconds
 
@@ -61,7 +69,18 @@ fun ApplicationCall.protocol(): Int {
     return p
 }
 
-fun Application.dominoServer(service: GameService, hub: LiveHub) {
+/** What this server can do beyond protocol 1; apps only offer what's listed. */
+val SERVER_FEATURES = listOf(
+    ServerFeatures.PUBLIC_GAMES,
+    ServerFeatures.LOBBY_SETTINGS,
+    ServerFeatures.TURN_LIMITS,
+    ServerFeatures.REMATCH,
+)
+
+/**
+ * The game server. Every [turnCheckMs] it ends games whose player to move ran out of time.
+ */
+fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Long = 5_000) {
     install(ContentNegotiation) { json(ProtocolJson) }
     install(CallLogging) { level = Level.INFO }
     install(WebSockets) { pingPeriod = 20.seconds }
@@ -80,9 +99,27 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
             ?: throw ApiException(401, "Unknown player; register again")
     }
 
+    // Turn limits: end overdue games and tell anyone watching them.
+    launch {
+        while (isActive) {
+            delay(turnCheckMs)
+            try {
+                service.expireOverdueTurns().forEach(hub::changed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                environment.log.error("Checking turn limits failed", e)
+            }
+        }
+    }
+
     routing {
         get("/health") { call.respondText("ok") }
-        get("/version") { call.respond(ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED)) }
+        get("/version") {
+            call.respond(
+                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = SERVER_FEATURES),
+            )
+        }
 
         post("/players") {
             call.protocol()
@@ -93,6 +130,9 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         }
 
         get("/games") { call.respond(service.gamesOf(call.player(), call.protocol())) }
+
+        // Public lobbies anyone can join. Declared before /games/{id}; Ktor prefers the fixed path anyway.
+        get("/games/open") { call.respond(service.openGames(call.player(), call.protocol())) }
 
         post("/games") {
             val p = call.player()
@@ -110,6 +150,30 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         get("/games/{id}") {
             val p = call.player()
             val g = service.game(p, call.parameters["id"]!!, call.protocol())
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        // Sets up (or joins) a new lobby with the same settings after a finished game.
+        post("/games/{id}/rematch") {
+            val p = call.player()
+            val id = call.parameters["id"]!!
+            val g = service.rematch(p, id, call.protocol())
+            hub.changed(id) // the old game now points at the rematch
+            hub.changed(g.id)
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        post("/games/{id}/settings") {
+            val p = call.player()
+            val g = service.updateSettings(p, call.parameters["id"]!!, call.receive<SettingsRequest>(), call.protocol())
+            hub.changed(g.id)
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        post("/games/{id}/visibility") {
+            val p = call.player()
+            val g = service.setVisibility(p, call.parameters["id"]!!, call.receive<VisibilityRequest>().visibility)
+            hub.changed(g.id)
             call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
         }
 
@@ -161,12 +225,15 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         // Invite links open this page, which hands the code to the app.
         get("/join/{code}") {
             val code = call.parameters["code"]!!.uppercase().filter { it.isLetterOrDigit() }.take(12)
-            call.respondText(invitePage(code), ContentType.Text.Html)
+            // Tells the app which server the game is on; it matters for games hosted on a phone.
+            val o = call.request.origin
+            val server = "${o.scheme}://${o.serverHost}:${o.serverPort}"
+            call.respondText(invitePage(code, server), ContentType.Text.Html)
         }
     }
 }
 
-private fun invitePage(code: String) = """
+private fun invitePage(code: String, server: String) = """
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Join a dominoes game</title>
@@ -180,6 +247,6 @@ private fun invitePage(code: String) = """
  <h1>You're invited to dominoes</h1>
  <p>Open the Dominoes app and join with this code:</p>
  <div class="code">$code</div>
- <p><a href="dominoes://join/$code">Open in the app</a></p>
+ <p><a href="dominoes://join/$code?server=${java.net.URLEncoder.encode(server, "UTF-8")}">Open in the app</a></p>
 </main></body></html>
 """.trimIndent()

@@ -12,9 +12,13 @@ import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.HandSummary
 import de.wtzg.domino.protocol.Limits
+import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.PublicEvent
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.SeatView
+import de.wtzg.domino.protocol.SettingsRequest
+import de.wtzg.domino.protocol.TurnLimits
+import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.sinceProtocol
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,6 +45,11 @@ private fun GameRecord.requireProtocol(protocol: Int) {
 }
 
 private val AI_NAMES = listOf("Rosa", "Hank", "Mabel", "Otis")
+
+/** Public lobbies untouched for this long are left out of the open games. */
+const val OPEN_GAME_MAX_AGE_MS = 24L * 60 * 60 * 1000
+private const val OPEN_GAMES_SHOWN = 50
+private const val OPEN_GAMES_SCAN = 200
 private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O or 1/I mix-ups
 
 fun hashToken(token: String): String =
@@ -87,9 +96,25 @@ class GameService(
 
     // --- Lobby -------------------------------------------------------------------------------
 
+    private fun checkTable(players: Int, target: Int, turnLimitSeconds: Int) {
+        if (players !in 2..4) badRequest("2 to 4 players")
+        if (target !in Limits.TARGET_MIN..Limits.TARGET_MAX) {
+            badRequest("Target must be between ${Limits.TARGET_MIN} and ${Limits.TARGET_MAX}")
+        }
+        if (!TurnLimits.isValid(turnLimitSeconds)) badRequest("Turn limits are 15 seconds to 30 days, or none")
+    }
+
+    /** Keeps one player from filling the open games list. */
+    private fun checkOpenGamesOf(host: PlayerRecord) {
+        val listed = store.gamesOf(host.id).count { it.isOpen && it.seatOf(host.id) == it.hostSeat }
+        if (listed >= Limits.OPEN_GAMES_PER_HOST) {
+            conflict("You already have ${Limits.OPEN_GAMES_PER_HOST} open games listed. Start or close one first.")
+        }
+    }
+
     fun create(host: PlayerRecord, req: CreateGameRequest): GameRecord {
-        if (req.players !in 2..4) badRequest("2 to 4 players")
-        if (req.target !in 10..1000) badRequest("Target must be between 10 and 1000")
+        checkTable(req.players, req.target, req.turnLimitSeconds)
+        if (req.visibility == Visibility.PUBLIC) checkOpenGamesOf(host)
         val now = clock()
         val g = GameRecord(
             id = UUID.randomUUID().toString(),
@@ -100,9 +125,122 @@ class GameService(
             status = GameStatus.LOBBY,
             createdAt = now,
             updatedAt = now,
+            visibility = req.visibility,
+            turnLimitSeconds = req.turnLimitSeconds,
         )
         store.saveGame(g)
         return g
+    }
+
+    /**
+     * The host changes the game before it starts. Everyone already seated keeps a seat:
+     * the table can't shrink below them, and when it shrinks they move up to fill the gaps.
+     */
+    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int = 1): GameRecord = withGame(id) { g ->
+        if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change the game")
+        if (g.status != GameStatus.LOBBY) conflict("The game has already started")
+        checkTable(req.players, req.target, req.turnLimitSeconds)
+        if (req.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
+        val people = g.seats.filter { !it.isFree }
+        if (req.players < people.size) conflict("${people.size} people are already at the table")
+        // The host stays in seat 0; everyone else keeps their order, then the free seats.
+        val seats = if (req.players >= g.seats.size) {
+            g.seats + List(req.players - g.seats.size) { SeatRecord() }
+        } else {
+            people + List(req.players - people.size) { SeatRecord() }
+        }
+        save(g.copy(rules = Rules(req.mode, req.players, req.target), pace = req.pace, seats = seats, turnLimitSeconds = req.turnLimitSeconds))
+    }
+
+    /** The host lists the lobby in the open games, or takes it off. Only before the game starts. */
+    suspend fun setVisibility(player: PlayerRecord, id: String, visibility: Visibility): GameRecord = withGame(id) { g ->
+        if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change who can join")
+        if (g.status != GameStatus.LOBBY) conflict("The game has already started")
+        if (g.visibility == visibility) return@withGame g
+        if (visibility == Visibility.PUBLIC) checkOpenGamesOf(player)
+        save(g.copy(visibility = visibility))
+    }
+
+    // --- Rematch -----------------------------------------------------------------------------
+
+    /**
+     * A new lobby with the same settings after a finished game. The first player to ask sets
+     * it up and hosts it; everyone after joins that same lobby.
+     */
+    suspend fun rematch(player: PlayerRecord, id: String, protocol: Int = 1): GameRecord {
+        val (lobbyId, code) = withGame(id) { g ->
+            if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
+            if (g.status != GameStatus.FINISHED) conflict("The game isn't over yet")
+            val existing = g.rematchId?.let(store::game)
+            when {
+                existing != null && existing.status == GameStatus.LOBBY -> existing.id to existing.code
+                existing != null -> conflict("The rematch has already started")
+                else -> {
+                    // None yet, or its host cancelled it: set up a new one.
+                    val now = clock()
+                    val next = GameRecord(
+                        id = UUID.randomUUID().toString(),
+                        code = newCode(),
+                        pace = g.pace,
+                        rules = g.rules,
+                        seats = List(g.rules.players) { i -> if (i == 0) SeatRecord(player.id, player.name) else SeatRecord() },
+                        status = GameStatus.LOBBY,
+                        createdAt = now,
+                        updatedAt = now,
+                        turnLimitSeconds = g.turnLimitSeconds,
+                    )
+                    store.saveGame(next)
+                    save(g.copy(rematchId = next.id))
+                    next.id to null
+                }
+            }
+        }
+        return if (code == null) store.game(lobbyId) ?: notFound("No such game") else join(player, code, protocol)
+    }
+
+    // --- Turn limits -------------------------------------------------------------------------
+
+    /**
+     * Ends every game whose player to move has run out of time, and returns their ids so open
+     * connections can be told. Nobody wins a game that ends this way.
+     */
+    suspend fun expireOverdueTurns(): List<String> = store.overdueGames(clock()).mapNotNull { id ->
+        try {
+            withGame(id) { g ->
+                val deadline = g.turnDeadline
+                // Checked again under the lock: a move may have come in meanwhile.
+                if (deadline == null || deadline > clock()) return@withGame null
+                save(g.copy(status = GameStatus.FINISHED, timedOut = g.match!!.round.turn))
+                id
+            }
+        } catch (_: ApiException) {
+            null // deleted meanwhile
+        }
+    }
+
+    /**
+     * Public lobbies [player] could join: not their own, with a free seat, in a mode their app
+     * knows, and touched in the last [OPEN_GAME_MAX_AGE_MS] so abandoned lobbies drop off.
+     */
+    fun openGames(player: PlayerRecord, protocol: Int = 1): List<OpenGame> {
+        val since = clock() - OPEN_GAME_MAX_AGE_MS
+        return store.openGames(OPEN_GAMES_SCAN)
+            .filter { it.updatedAt >= since && it.seatOf(player.id) < 0 && it.rules.mode.sinceProtocol <= protocol }
+            .take(OPEN_GAMES_SHOWN)
+            .map { g ->
+                OpenGame(
+                    id = g.id,
+                    code = g.code,
+                    mode = g.rules.mode,
+                    target = g.rules.target,
+                    pace = g.pace,
+                    host = g.seats[g.hostSeat].name,
+                    seats = g.seats.size,
+                    taken = g.seats.count { it.playerId != null },
+                    updatedAt = g.updatedAt,
+                    turnLimitSeconds = g.turnLimitSeconds,
+                )
+            }
     }
 
     private fun newCode(): String {
@@ -164,11 +302,16 @@ class GameService(
             } else {
                 save(g.copy(seats = g.seats.toMutableList().also { it[seat] = SeatRecord() }))
             }
-        GameStatus.PLAYING -> {
-            val s = g.seats[seat]
-            val ai = SeatRecord(null, "${s.name} (AI)", Difficulty.NORMAL)
-            save(runComputers(g.copy(seats = g.seats.toMutableList().also { it[seat] = ai })))
-        }
+        GameStatus.PLAYING ->
+            // The game ends for everyone, nobody winning. The leaver's name stays at the table,
+            // but the game drops off their list.
+            save(
+                g.copy(
+                    status = GameStatus.FINISHED,
+                    leftSeat = seat,
+                    seats = g.seats.toMutableList().also { it[seat] = it[seat].copy(playerId = null) },
+                ),
+            )
         GameStatus.FINISHED -> {
             // Take it off your list; the record stays for the others.
             save(g.copy(seats = g.seats.toMutableList().also { it[seat] = it[seat].copy(playerId = null) }))
@@ -239,6 +382,8 @@ class GameService(
             winner = g.match?.winner,
             version = g.version,
             updatedAt = g.updatedAt,
+            timedOut = g.timedOut,
+            leftSeat = g.leftSeat,
         )
     }.sortedWith(compareByDescending<GameSummary> { it.isYourTurn }.thenByDescending { it.updatedAt })
 
@@ -278,6 +423,12 @@ class GameService(
             lastHand = g.lastHand,
             winner = m?.winner,
             updatedAt = g.updatedAt,
+            visibility = g.visibility,
+            turnLimitSeconds = g.turnLimitSeconds,
+            turnEndsInMs = g.turnDeadline?.let { (it - clock()).coerceAtLeast(0) },
+            timedOut = g.timedOut,
+            leftSeat = g.leftSeat,
+            rematchId = g.rematchId,
         )
     }
 

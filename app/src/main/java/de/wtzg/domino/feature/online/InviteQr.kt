@@ -22,6 +22,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.google.zxing.qrcode.encoder.Encoder
+import de.wtzg.domino.data.local.localInviteFrom
 import de.wtzg.domino.protocol.Limits
 
 /** An invite link: `https://server/join/CODE` or `dominoes://join/CODE`. */
@@ -73,14 +74,30 @@ fun QrCode(text: String, description: String, modifier: Modifier = Modifier, siz
  * game code from a scanned invite, or [onNotAnInvite] if the QR code holds something else.
  * Nothing happens if the scan is cancelled.
  */
-fun scanInviteQr(context: Context, onCode: (String) -> Unit, onNotAnInvite: () -> Unit, onUnavailable: () -> Unit) {
+fun scanInviteQr(
+    context: Context,
+    onCode: (String) -> Unit,
+    onNotAnInvite: () -> Unit,
+    onUnavailable: () -> Unit,
+    /** The code is for a game hosted on a phone on the same Wi-Fi, not on the online server. */
+    onLocalGame: () -> Unit = onNotAnInvite,
+) = scanQr(
+    context,
+    onText = { text ->
+        when {
+            localInviteFrom(text) != null -> onLocalGame()
+            else -> inviteCodeFrom(text)?.let(onCode) ?: onNotAnInvite()
+        }
+    },
+    onUnavailable = onUnavailable,
+)
+
+/** Opens the Play services QR scanner and hands over whatever the code says. Cancelling does nothing. */
+fun scanQr(context: Context, onText: (String) -> Unit, onUnavailable: () -> Unit) {
     val options = GmsBarcodeScannerOptions.Builder()
         .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
         .build()
     GmsBarcodeScanning.getClient(context, options).startScan()
-        .addOnSuccessListener { barcode ->
-            val code = barcode.rawValue?.let(::inviteCodeFrom)
-            if (code != null) onCode(code) else onNotAnInvite()
-        }
+        .addOnSuccessListener { barcode -> onText(barcode.rawValue.orEmpty()) }
         .addOnFailureListener { onUnavailable() }
 }

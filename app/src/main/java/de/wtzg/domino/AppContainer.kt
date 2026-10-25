@@ -9,6 +9,9 @@ import de.wtzg.domino.data.appStore
 import de.wtzg.domino.data.online.OnlineRepository
 import de.wtzg.domino.data.online.onlineHttpClient
 import de.wtzg.domino.data.scoreKeeperStore
+import de.wtzg.domino.data.local.LocalHost
+import io.ktor.client.engine.cio.CIO
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Manual dependency injection: one place that builds the app's repositories. */
 class AppContainer(context: Context) {
@@ -18,4 +21,11 @@ class AppContainer(context: Context) {
     val savedGame = SavedGameRepository(app.appStore)
     val scoreKeeper = ScoreKeeperRepository(app.scoreKeeperStore)
     val online by lazy { OnlineRepository(app.appStore, settings, onlineHttpClient()) }
+
+    /** Games on the same Wi-Fi: the phone this one hosts, or the host it joined. */
+    val localServer = MutableStateFlow("")
+    val localHost by lazy { LocalHost() }
+
+    /** Plain HTTP to local addresses only, so the CIO client rather than OkHttp; see LocalPlay.kt. */
+    val local by lazy { OnlineRepository(app.appStore, settings, onlineHttpClient(CIO.create()), server = localServer) }
 }

@@ -8,15 +8,19 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.JoinRequest
+import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.ProtocolJson
 import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.ProtocolVersion
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.ServerInfo
+import de.wtzg.domino.protocol.SettingsRequest
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
+import de.wtzg.domino.protocol.Visibility
+import de.wtzg.domino.protocol.VisibilityRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
@@ -134,6 +138,16 @@ class KtorOnlineApi(
     override suspend fun start(id: String, difficulty: Difficulty): GameView =
         call { client.post { endpoint("/games/$id/start"); jsonBody(StartRequest(difficulty)) } }
 
+    override suspend fun openGames(): List<OpenGame> = call { client.get { endpoint("/games/open") } }
+
+    override suspend fun updateSettings(id: String, settings: SettingsRequest): GameView =
+        call { client.post { endpoint("/games/$id/settings"); jsonBody(settings) } }
+
+    override suspend fun rematch(id: String): GameView = call { client.post { endpoint("/games/$id/rematch") } }
+
+    override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
+        call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }
+
     override suspend fun act(id: String, action: Action, version: Int): GameView? {
         val response = try {
             client.post { endpoint("/games/$id/actions"); jsonBody(ActionRequest(action, version)) }
@@ -146,7 +160,7 @@ class KtorOnlineApi(
         return call { response }
     }
 
-    override fun live(id: String): Flow<GameView> = flow {
+    override fun live(id: String, onConnection: (Boolean) -> Unit): Flow<GameView> = flow {
         val ws = URLBuilder().takeFrom(baseUrl.trimEnd('/') + "/games/$id/live").apply {
             protocol = if (protocol == URLProtocol.HTTPS) URLProtocol.WSS else URLProtocol.WS
             parameters.append("token", token.orEmpty())
@@ -158,7 +172,11 @@ class KtorOnlineApi(
                 client.webSocket(ws, request = { header(ProtocolVersion.HEADER, ProtocolVersion.CURRENT.toString()) }) {
                     backoff = 1_000L
                     for (frame in incoming) {
-                        if (frame is Frame.Text) emit(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
+                        if (frame is Frame.Text) {
+                            // The server sends the game straight away, so the first frame means we're live.
+                            onConnection(true)
+                            emit(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -166,6 +184,7 @@ class KtorOnlineApi(
             } catch (_: Exception) {
                 // Dropped connection: try again shortly.
             }
+            onConnection(false)
             delay(backoff)
             backoff = (backoff * 2).coerceAtMost(15_000L)
         }

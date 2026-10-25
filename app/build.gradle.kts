@@ -91,6 +91,16 @@ dependencies {
     implementation(libs.ktor.client.websockets)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
+    // Same-Wi-Fi games: the host's phone runs the game server itself (CIO engine), and
+    // players talk to it with the CIO client (see LocalPlay.kt for why not OkHttp).
+    // The server's own engine, database and logging are for the hosted server only.
+    implementation(project(":server")) {
+        exclude(group = "io.ktor", module = "ktor-server-netty")
+        exclude(group = "org.xerial", module = "sqlite-jdbc")
+        exclude(group = "ch.qos.logback")
+    }
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.client.cio)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.lifecycle.process)
     // QR codes: drawing invite codes, and scanning them with the Play services scanner.

@@ -24,6 +24,11 @@ An Android app for playing, learning and keeping score in dominoes.
 - In turn-by-turn games you get a notification when it's your move.
 - This needs a small game server that you host. See [docs/ONLINE.md](docs/ONLINE.md).
 
+**Same Wi-Fi**: play at one table, each on your own phone.
+- One phone hosts the game and the others join by scanning its QR code. Everyone needs to be on the same Wi-Fi, or on the host's hotspot.
+- No internet or server needed: the host's phone runs the game. Keep the app open on it while you play.
+- Works like online play otherwise: lobby settings, time per turn, rematch.
+
 **Learn**
 - 20 lessons across five sections: basics, strategy, scoring games, advanced play and Red Dead Redemption 2.
 - "Find the best move" puzzles, taken from real games between strong AIs.

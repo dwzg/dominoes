@@ -21,6 +21,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.calllogging.CallLogging
+import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receive
@@ -224,12 +225,15 @@ fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Lo
         // Invite links open this page, which hands the code to the app.
         get("/join/{code}") {
             val code = call.parameters["code"]!!.uppercase().filter { it.isLetterOrDigit() }.take(12)
-            call.respondText(invitePage(code), ContentType.Text.Html)
+            // Tells the app which server the game is on; it matters for games hosted on a phone.
+            val o = call.request.origin
+            val server = "${o.scheme}://${o.serverHost}:${o.serverPort}"
+            call.respondText(invitePage(code, server), ContentType.Text.Html)
         }
     }
 }
 
-private fun invitePage(code: String) = """
+private fun invitePage(code: String, server: String) = """
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Join a dominoes game</title>
@@ -243,6 +247,6 @@ private fun invitePage(code: String) = """
  <h1>You're invited to dominoes</h1>
  <p>Open the Dominoes app and join with this code:</p>
  <div class="code">$code</div>
- <p><a href="dominoes://join/$code">Open in the app</a></p>
+ <p><a href="dominoes://join/$code?server=${java.net.URLEncoder.encode(server, "UTF-8")}">Open in the app</a></p>
 </main></body></html>
 """.trimIndent()

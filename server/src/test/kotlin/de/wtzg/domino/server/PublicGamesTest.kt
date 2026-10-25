@@ -23,6 +23,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -127,6 +128,13 @@ class PublicGamesTest {
         assertEquals(1, c.open(bob).size)
         now += OPEN_GAME_MAX_AGE_MS + 1
         assertTrue(c.open(bob).isEmpty())
+    }
+
+    @Test
+    fun invitePageTellsTheAppWhichServerTheGameIsOn() = testApplication {
+        val c = setUp()
+        val page = c.get("/join/abc234").bodyAsText()
+        assertTrue(page, "dominoes://join/ABC234?server=http%3A%2F%2Flocalhost%3A80" in page)
     }
 
     @Test

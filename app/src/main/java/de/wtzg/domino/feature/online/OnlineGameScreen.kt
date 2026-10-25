@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -98,6 +100,13 @@ fun OnlineGameScreen(
     LaunchedEffect(lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.stayConnected() } }
     LaunchedEffect(state.gone) { if (state.gone) onBack() }
     LaunchedEffect(state.moveTo) { state.moveTo?.let { vm.moved(); onOpenGame(it) } }
+
+    // At a same-Wi-Fi table, especially on the hosting phone, the screen shouldn't sleep mid-game.
+    val view = LocalView.current
+    DisposableEffect(state.local) {
+        view.keepScreenOn = state.local
+        onDispose { view.keepScreenOn = false }
+    }
 
     var confirmLeave by remember { mutableStateOf(false) }
     val v = state.view
@@ -243,10 +252,21 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                         Text("Time per turn: ${TurnLimits.label(v.turnLimitSeconds)}", style = MaterialTheme.typography.bodyMedium)
                     }
                     Text(
-                        if (v.visibility == Visibility.PUBLIC) "Open to anyone · listed under Open games" else "Invite only",
+                        when {
+                            state.local -> "On this Wi-Fi"
+                            v.visibility == Visibility.PUBLIC -> "Open to anyone · listed under Open games"
+                            else -> "Invite only"
+                        },
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    if (state.local) {
+                        Text(
+                            "Everyone joins on the same Wi-Fi. Address: ${state.serverUrl.removePrefix("http://")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                     if (host && state.lobbySettings) {
                         TextButton(onClick = { editingSettings = true }, enabled = !state.busy) { Text("Change settings") }
                     }
@@ -293,7 +313,7 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                 }
             }
 
-            if (host && state.publicGames) {
+            if (host && state.publicGames && !state.local) {
                 // Off the list once the seats are full or the game starts, so only offer it while it matters.
                 Row(
                     Modifier

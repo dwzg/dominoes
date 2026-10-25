@@ -274,6 +274,7 @@ private fun JoinWithCode(initial: String, busy: Boolean, onJoin: (String) -> Uni
                         onCode = { scanned -> code = scanned; onJoin(scanned) },
                         onNotAnInvite = { scanProblem = "That QR code isn't a dominoes invite." },
                         onUnavailable = { scanProblem = "The QR scanner isn't available on this phone. Type the code instead." },
+                        onLocalGame = { scanProblem = "That game is hosted on a phone on the same Wi-Fi. Join it from Play, under \"Same Wi-Fi\"." },
                     )
                 },
                 enabled = !busy,

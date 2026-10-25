@@ -38,6 +38,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.Flow
+import de.wtzg.domino.data.local.LocalInvite
+import de.wtzg.domino.data.local.isLocalNetworkAddress
+import de.wtzg.domino.feature.local.LocalScreen
+import de.wtzg.domino.feature.local.LocalViewModel
 import de.wtzg.domino.feature.online.OnlineCreateScreen
 import de.wtzg.domino.feature.online.OnlineGameScreen
 import de.wtzg.domino.feature.online.OnlineGameViewModel
@@ -154,6 +158,7 @@ private fun AppNavHost(
                 onPickMode = { nav.navigate(SetupRoute(it.name)) },
                 onLearn = { nav.goToTab(Tab.LEARN) },
                 onOnline = { nav.navigate(OnlineRoute()) },
+                onLocal = { nav.navigate(LocalRoute()) },
             )
         }
         composable<SetupRoute> { e ->
@@ -251,7 +256,33 @@ private fun AppNavHost(
             OnlineHome(nav, e.toRoute<OnlineRoute>().code)
         }
         composable<JoinRoute>(deepLinks = listOf(navDeepLink<JoinRoute>(basePath = "dominoes://join"))) { e ->
-            OnlineHome(nav, e.toRoute<JoinRoute>().code)
+            val r = e.toRoute<JoinRoute>()
+            val server = r.server
+            // Invites to a game hosted on a phone go to the same-Wi-Fi screen, not the online server.
+            if (server != null && isLocalNetworkAddress(server)) LocalHome(nav, LocalInvite(server, r.code)) else OnlineHome(nav, r.code)
+        }
+        composable<LocalRoute> { e ->
+            val r = e.toRoute<LocalRoute>()
+            val invite = if (r.server != null && r.code != null) LocalInvite(r.server, r.code) else null
+            LocalHome(nav, invite)
+        }
+        composable<LocalCreateRoute> {
+            val vm = appViewModel(key = "local-create") { OnlineHomeViewModel(it.local, it.settings) }
+            val s by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(s.open) {
+                s.open?.let { id ->
+                    vm.opened()
+                    nav.navigate(OnlineGameRoute(id, local = true)) { popUpTo<LocalCreateRoute> { inclusive = true } }
+                }
+            }
+            // Everyone at a same-Wi-Fi game joins by QR code, so there's no public list to be on.
+            OnlineCreateScreen(
+                busy = s.busy,
+                allowPublic = false,
+                allowTurnLimit = true,
+                onBack = { nav.popBackStack() },
+                onCreate = vm::create,
+            )
         }
         composable<OnlineCreateRoute> {
             val vm = appViewModel(owner = onlineOwner(nav)) { OnlineHomeViewModel(it.online, it.settings) }
@@ -271,8 +302,11 @@ private fun AppNavHost(
             )
         }
         composable<OnlineGameRoute>(deepLinks = listOf(navDeepLink<OnlineGameRoute>(basePath = "dominoes://game"))) { e ->
-            val id = e.toRoute<OnlineGameRoute>().id
-            val vm = appViewModel(key = "online-$id") { OnlineGameViewModel(id, it.online) }
+            val route = e.toRoute<OnlineGameRoute>()
+            val id = route.id
+            val vm = appViewModel(key = "online-$id-${route.local}") {
+                OnlineGameViewModel(id, if (route.local) it.local else it.online, local = route.local)
+            }
             val s by vm.state.collectAsStateWithLifecycle()
             OnlineGameScreen(
                 s,
@@ -281,7 +315,7 @@ private fun AppNavHost(
                 dimHandWhileWaiting = settings.dimHandWhileWaiting,
                 onBack = { nav.popBackStack() },
                 // The rematch replaces the finished game on the back stack.
-                onOpenGame = { next -> nav.navigate(OnlineGameRoute(next)) { popUpTo<OnlineGameRoute> { inclusive = true } } },
+                onOpenGame = { next -> nav.navigate(OnlineGameRoute(next, route.local)) { popUpTo<OnlineGameRoute> { inclusive = true } } },
             )
         }
         composable<MoreRoute> {
@@ -299,6 +333,19 @@ private fun AppNavHost(
 @Composable
 private fun onlineOwner(nav: NavHostController): androidx.lifecycle.ViewModelStoreOwner =
     remember(nav) { runCatching { nav.getBackStackEntry<OnlineRoute>() }.getOrNull() } ?: checkNotNull(androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current)
+
+@Composable
+private fun LocalHome(nav: NavHostController, invite: LocalInvite?) {
+    val vm = appViewModel(key = "local-${invite?.code}") { LocalViewModel(it.local, it.localServer, it.localHost, it.settings, invite) }
+    val s by vm.state.collectAsStateWithLifecycle()
+    LocalScreen(
+        state = s,
+        vm = vm,
+        onBack = { if (!nav.popBackStack()) nav.navigate(PlayRoute) },
+        onCreate = { nav.navigate(LocalCreateRoute) },
+        onOpenGame = { nav.navigate(OnlineGameRoute(it, local = true)) },
+    )
+}
 
 @Composable
 private fun OnlineHome(nav: NavHostController, code: String?) {

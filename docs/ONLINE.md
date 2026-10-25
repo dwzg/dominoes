@@ -149,3 +149,17 @@ The rules for changing the protocol are at the top of
 
 Authenticated calls send `Authorization: Bearer <token>`. Message formats are in
 `protocol/src/main/kotlin/de/wtzg/domino/protocol/Protocol.kt`.
+
+## Same Wi-Fi games
+
+Players at one table can play without this server. Under **Play → Same Wi-Fi**, one phone hosts:
+the app starts this same game server inside itself, on port 8077 (or a free port if that's
+taken), and shows a QR code with its local address, e.g. `http://192.168.1.5:8077/join/ABC234`.
+The others scan it and join over the local network.
+
+- Everyone needs to be on the same network, or on the host's hotspot. Some guest and hotel
+  networks keep devices from seeing each other; a hotspot works there.
+- Games live in memory on the hosting phone. They end when the host stops hosting or closes the app.
+- Traffic is plain HTTP on the local network, since a phone's local address can't get a
+  certificate. The app only does this for private addresses (10.x, 172.16–31.x, 192.168.x);
+  everything else stays HTTPS.

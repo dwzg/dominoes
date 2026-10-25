@@ -44,6 +44,8 @@ data class OnlineGameState(
     val moveTo: String? = null,
     /** The live connection dropped a moment ago and hasn't come back yet. */
     val reconnecting: Boolean = false,
+    /** Hosted on a phone on the same Wi-Fi rather than the online server. */
+    val local: Boolean = false,
 ) {
     /** The server can list lobbies publicly, so the host may switch it on and off. */
     val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
@@ -76,8 +78,12 @@ interface OnlineGameActions : GameActions {
     fun dismissError()
 }
 
-class OnlineGameViewModel(private val id: String, private val repo: OnlineRepository) : ViewModel(), OnlineGameActions {
-    private val _state = MutableStateFlow(OnlineGameState())
+class OnlineGameViewModel(
+    private val id: String,
+    private val repo: OnlineRepository,
+    local: Boolean = false,
+) : ViewModel(), OnlineGameActions {
+    private val _state = MutableStateFlow(OnlineGameState(local = local))
     val state: StateFlow<OnlineGameState> = _state.asStateFlow()
     private var badgeId = 0L
 

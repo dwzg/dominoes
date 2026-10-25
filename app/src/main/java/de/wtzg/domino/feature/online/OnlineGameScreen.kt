@@ -55,7 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -112,9 +112,10 @@ fun OnlineGameScreen(
     val v = state.view
     // Tick once a second while a turn clock runs, so the time left counts down.
     val counting = v?.turnEndsInMs != null
-    val now by produceState(System.currentTimeMillis(), counting) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(counting) {
         while (counting) {
-            value = System.currentTimeMillis()
+            now = System.currentTimeMillis()
             delay(1_000)
         }
     }

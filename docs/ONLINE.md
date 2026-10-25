@@ -118,7 +118,9 @@ The rules for changing the protocol are at the top of
 
 - **Players:** you pick a name. The server returns a random token that the app keeps; there are no passwords. Clearing the app's data means a new identity.
 - **Games:** the host creates a game and shares the 6-letter code, the invite link (`https://<server>/join/CODE`, which opens the app) or the QR code in the lobby. Free seats get computer players when the host starts.
-- **Public or private:** a game is invite only unless the host makes it open to anyone. Open games are listed for everyone on the server while they're in the lobby with a free seat; lobbies untouched for 24 hours drop off the list.
+- **Public or private:** a game is invite only unless the host makes it open to anyone. Open games are listed for everyone on the server while they're in the lobby with a free seat; lobbies untouched for 24 hours drop off the list. Each player can list up to 3 open games at a time.
+- **Time per turn:** the host can set a limit (live: 30 seconds to 5 minutes; turn by turn: 1 to 7 days). If the player to move runs out of time, the game ends there with the scores as they stand and nobody wins. The server checks every few seconds.
+- **Rematch:** after a game ends, anyone at the table can ask for a rematch. The first to ask hosts a new lobby with the same settings, and everyone after joins it.
 - **Live games** stream updates over a WebSocket while the game is open.
 - **Turn-by-turn games:** while the app is closed, it checks every 15 minutes and notifies you when it's your turn.
 - **Fairness:** every action carries the game version it was based on, so moves made on an outdated screen are refused. Other players' tiles are never sent to your phone.
@@ -132,11 +134,12 @@ The rules for changing the protocol are at the top of
 | POST | `/players` | Register `{name}` → `{playerId, token, name}` |
 | PATCH | `/players/me` | Rename |
 | GET | `/games` | Your games |
-| POST | `/games` | Create `{mode, players, target, pace, visibility}` (`visibility` is `PRIVATE` or `PUBLIC`, default `PRIVATE`) |
+| POST | `/games` | Create `{mode, players, target, pace, visibility, turnLimitSeconds}` (`visibility` is `PRIVATE` or `PUBLIC`, default `PRIVATE`; `turnLimitSeconds` 0 is no limit) |
 | GET | `/games/open` | Public lobbies you could join |
 | POST | `/games/join` | Join `{code}` |
 | GET | `/games/{id}` | Your view of a game |
-| POST | `/games/{id}/settings` | Host changes the game in the lobby `{mode, players, target, pace}`; never fewer seats than people seated |
+| POST | `/games/{id}/settings` | Host changes the game in the lobby `{mode, players, target, pace, turnLimitSeconds}`; never fewer seats than people seated |
+| POST | `/games/{id}/rematch` | Sets up or joins the rematch of a finished game |
 | POST | `/games/{id}/visibility` | Host lists or hides the lobby `{visibility}` |
 | POST | `/games/{id}/start` | Host starts `{difficulty}` |
 | POST | `/games/{id}/actions` | `{action: play/draw/pass/leave, version}` |

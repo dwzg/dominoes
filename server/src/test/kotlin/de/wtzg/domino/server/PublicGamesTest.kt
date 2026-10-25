@@ -199,7 +199,7 @@ class PublicGamesTest {
             val version = DriverManager.getConnection("jdbc:sqlite:${file.path}").use { conn ->
                 conn.createStatement().use { st -> st.executeQuery("PRAGMA user_version").use { it.next(); it.getInt(1) } }
             }
-            assertEquals(2, version)
+            assertEquals("upgraded through every schema step", 3, version)
         } finally {
             file.delete()
         }

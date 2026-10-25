@@ -18,6 +18,9 @@ interface Store {
 
     /** Public lobbies with a free seat, newest first. */
     fun openGames(limit: Int): List<GameRecord>
+
+    /** Games where the player to move ran out of time by [now]. */
+    fun overdueGames(now: Long): List<String>
     fun deleteGame(id: String)
 }
 
@@ -34,6 +37,7 @@ class InMemoryStore : Store {
     override fun gameByCode(code: String) = games.values.firstOrNull { it.code == code }
     override fun gamesOf(playerId: String) = games.values.filter { playerId in it.playerIds }
     override fun openGames(limit: Int) = games.values.filter { it.isOpen }.sortedByDescending { it.updatedAt }.take(limit)
+    override fun overdueGames(now: Long) = games.values.filter { g -> g.turnDeadline?.let { it <= now } == true }.map { it.id }
     override fun deleteGame(id: String) { games.remove(id) }
 }
 
@@ -86,6 +90,11 @@ class SqliteStore(path: String) : Store {
             listOf(
                 "CREATE TABLE IF NOT EXISTS open_games (game_id TEXT PRIMARY KEY, updated_at INTEGER NOT NULL)",
                 "CREATE INDEX IF NOT EXISTS open_games_updated ON open_games(updated_at)",
+            ),
+            // 3: turn time limits. Games before this had none, so there's nothing to fill in.
+            listOf(
+                "CREATE TABLE IF NOT EXISTS turn_deadlines (game_id TEXT PRIMARY KEY, deadline INTEGER NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS turn_deadlines_deadline ON turn_deadlines(deadline)",
             ),
         )
     }
@@ -146,6 +155,14 @@ class SqliteStore(path: String) : Store {
             } else {
                 prepareStatement("DELETE FROM open_games WHERE game_id = ?").use { it.setString(1, g.id); it.executeUpdate() }
             }
+            val deadline = g.turnDeadline
+            if (deadline != null) {
+                prepareStatement("INSERT OR REPLACE INTO turn_deadlines (game_id, deadline) VALUES (?, ?)").use {
+                    it.setString(1, g.id); it.setLong(2, deadline); it.executeUpdate()
+                }
+            } else {
+                prepareStatement("DELETE FROM turn_deadlines WHERE game_id = ?").use { it.setString(1, g.id); it.executeUpdate() }
+            }
             commit()
         } catch (e: Exception) {
             rollback()
@@ -190,7 +207,15 @@ class SqliteStore(path: String) : Store {
         }
     }
 
+    override fun overdueGames(now: Long) = locked {
+        prepareStatement("SELECT game_id FROM turn_deadlines WHERE deadline <= ?").use {
+            it.setLong(1, now)
+            it.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+        }
+    }
+
     override fun deleteGame(id: String) = locked {
+        prepareStatement("DELETE FROM turn_deadlines WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM open_games WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM game_players WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM games WHERE id = ?").use { it.setString(1, id); it.executeUpdate() }

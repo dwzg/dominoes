@@ -43,6 +43,12 @@ object ServerFeatures {
 
     /** The host can change the game in the lobby: POST /games/{id}/settings. */
     const val LOBBY_SETTINGS = "lobby-settings"
+
+    /** Turn time limits: a game ends when the player to move runs out of time. */
+    const val TURN_LIMITS = "turn-limits"
+
+    /** Rematch after a finished game: POST /games/{id}/rematch. */
+    const val REMATCH = "rematch"
 }
 
 /** The protocol version a game mode was added in; apps speaking older protocols don't know it. */

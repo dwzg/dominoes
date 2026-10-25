@@ -34,6 +34,9 @@ interface OnlineApi {
     /** The host changes the game in the lobby. Needs [de.wtzg.domino.protocol.ServerFeatures.LOBBY_SETTINGS]. */
     suspend fun updateSettings(id: String, settings: SettingsRequest): GameView
 
+    /** Sets up, or joins, a new lobby with the same settings after a finished game. */
+    suspend fun rematch(id: String): GameView
+
     /** The host lists the lobby publicly or hides it again. */
     suspend fun setVisibility(id: String, visibility: Visibility): GameView
 

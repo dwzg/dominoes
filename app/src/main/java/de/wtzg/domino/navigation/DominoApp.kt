@@ -262,13 +262,27 @@ private fun AppNavHost(
                     nav.navigate(OnlineGameRoute(id)) { popUpTo<OnlineCreateRoute> { inclusive = true } }
                 }
             }
-            OnlineCreateScreen(busy = s.busy, allowPublic = s.publicGames, onBack = { nav.popBackStack() }, onCreate = vm::create)
+            OnlineCreateScreen(
+                busy = s.busy,
+                allowPublic = s.publicGames,
+                allowTurnLimit = de.wtzg.domino.protocol.ServerFeatures.TURN_LIMITS in s.features,
+                onBack = { nav.popBackStack() },
+                onCreate = vm::create,
+            )
         }
         composable<OnlineGameRoute>(deepLinks = listOf(navDeepLink<OnlineGameRoute>(basePath = "dominoes://game"))) { e ->
             val id = e.toRoute<OnlineGameRoute>().id
             val vm = appViewModel(key = "online-$id") { OnlineGameViewModel(id, it.online) }
             val s by vm.state.collectAsStateWithLifecycle()
-            OnlineGameScreen(s, vm, haptics = settings.haptics, dimHandWhileWaiting = settings.dimHandWhileWaiting, onBack = { nav.popBackStack() })
+            OnlineGameScreen(
+                s,
+                vm,
+                haptics = settings.haptics,
+                dimHandWhileWaiting = settings.dimHandWhileWaiting,
+                onBack = { nav.popBackStack() },
+                // The rematch replaces the finished game on the back stack.
+                onOpenGame = { next -> nav.navigate(OnlineGameRoute(next)) { popUpTo<OnlineGameRoute> { inclusive = true } } },
+            )
         }
         composable<MoreRoute> {
             MoreScreen(

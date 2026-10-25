@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,7 +66,9 @@ import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.protocol.SettingsRequest
+import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,15 +78,26 @@ fun OnlineGameScreen(
     haptics: Boolean,
     onBack: () -> Unit,
     dimHandWhileWaiting: Boolean = true,
+    /** Switch to another game, e.g. the rematch. */
+    onOpenGame: (String) -> Unit = {},
 ) {
     // Live updates only while the screen is visible.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { vm.stayConnected() } }
     LaunchedEffect(state.gone) { if (state.gone) onBack() }
+    LaunchedEffect(state.moveTo) { state.moveTo?.let { vm.moved(); onOpenGame(it) } }
 
     var confirmLeave by remember { mutableStateOf(false) }
     val v = state.view
-    val table = state.toTable()
+    // Tick once a second while a turn clock runs, so the time left counts down.
+    val counting = v?.turnEndsInMs != null
+    val now by produceState(System.currentTimeMillis(), counting) {
+        while (counting) {
+            value = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val table = state.toTable(now)
 
     when {
         v == null -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
@@ -157,7 +171,7 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
     val free = v.seats.count { it.playerId == null && !it.isAi }
     var editingSettings by rememberSaveable { mutableStateOf(false) }
     if (editingSettings) {
-        LobbySettingsDialog(v, onDismiss = { editingSettings = false }) { req ->
+        LobbySettingsDialog(v, showTurnLimit = state.turnLimits, onDismiss = { editingSettings = false }) { req ->
             editingSettings = false
             vm.updateSettings(req)
         }
@@ -201,6 +215,9 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                         "${v.rules.mode.title} · to ${v.rules.target} · ${if (v.pace == Pace.LIVE) "live" else "turn by turn"}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    if (state.turnLimits) {
+                        Text("Time per turn: ${TurnLimits.label(v.turnLimitSeconds)}", style = MaterialTheme.typography.bodyMedium)
+                    }
                     Text(
                         if (v.visibility == Visibility.PUBLIC) "Open to anyone · listed under Open games" else "Invite only",
                         style = MaterialTheme.typography.labelLarge,
@@ -322,11 +339,12 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
 
 /** The host changes the game before it starts; starts from the current settings. */
 @Composable
-private fun LobbySettingsDialog(v: GameView, onDismiss: () -> Unit, onSave: (SettingsRequest) -> Unit) {
+private fun LobbySettingsDialog(v: GameView, showTurnLimit: Boolean, onDismiss: () -> Unit, onSave: (SettingsRequest) -> Unit) {
     var mode by rememberSaveable { mutableStateOf(v.rules.mode) }
     var players by rememberSaveable { mutableIntStateOf(v.rules.players) }
     var target by rememberSaveable { mutableIntStateOf(v.rules.target) }
     var pace by rememberSaveable { mutableStateOf(v.pace) }
+    var turnLimit by rememberSaveable { mutableIntStateOf(v.turnLimitSeconds) }
     val seated = v.seats.count { it.playerId != null }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -341,13 +359,15 @@ private fun LobbySettingsDialog(v: GameView, onDismiss: () -> Unit, onSave: (Set
                     onMode = { mode = it; target = it.defaultTarget },
                     onPlayers = { players = it },
                     onTarget = { target = it },
-                    onPace = { pace = it },
+                    onPace = { pace = it; turnLimit = TurnLimits.default(it) },
                     minPlayers = seated.coerceAtLeast(2),
+                    turnLimit = turnLimit.takeIf { showTurnLimit },
+                    onTurnLimit = { turnLimit = it },
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(SettingsRequest(mode, players, target, pace)) }) { Text("Save") }
+            TextButton(onClick = { onSave(SettingsRequest(mode, players, target, pace, turnLimit)) }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

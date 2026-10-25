@@ -36,10 +36,14 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.slf4j.event.Level
 import kotlin.time.Duration.Companion.seconds
 
@@ -64,7 +68,18 @@ fun ApplicationCall.protocol(): Int {
     return p
 }
 
-fun Application.dominoServer(service: GameService, hub: LiveHub) {
+/** What this server can do beyond protocol 1; apps only offer what's listed. */
+val SERVER_FEATURES = listOf(
+    ServerFeatures.PUBLIC_GAMES,
+    ServerFeatures.LOBBY_SETTINGS,
+    ServerFeatures.TURN_LIMITS,
+    ServerFeatures.REMATCH,
+)
+
+/**
+ * The game server. Every [turnCheckMs] it ends games whose player to move ran out of time.
+ */
+fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Long = 5_000) {
     install(ContentNegotiation) { json(ProtocolJson) }
     install(CallLogging) { level = Level.INFO }
     install(WebSockets) { pingPeriod = 20.seconds }
@@ -83,11 +98,25 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
             ?: throw ApiException(401, "Unknown player; register again")
     }
 
+    // Turn limits: end overdue games and tell anyone watching them.
+    launch {
+        while (isActive) {
+            delay(turnCheckMs)
+            try {
+                service.expireOverdueTurns().forEach(hub::changed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                environment.log.error("Checking turn limits failed", e)
+            }
+        }
+    }
+
     routing {
         get("/health") { call.respondText("ok") }
         get("/version") {
             call.respond(
-                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = listOf(ServerFeatures.PUBLIC_GAMES, ServerFeatures.LOBBY_SETTINGS)),
+                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = SERVER_FEATURES),
             )
         }
 
@@ -120,6 +149,16 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         get("/games/{id}") {
             val p = call.player()
             val g = service.game(p, call.parameters["id"]!!, call.protocol())
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        // Sets up (or joins) a new lobby with the same settings after a finished game.
+        post("/games/{id}/rematch") {
+            val p = call.player()
+            val id = call.parameters["id"]!!
+            val g = service.rematch(p, id, call.protocol())
+            hub.changed(id) // the old game now points at the rematch
+            hub.changed(g.id)
             call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
         }
 

@@ -34,11 +34,22 @@ data class OnlineGameState(
     /** The game no longer exists (the host cancelled it, or you left). */
     val gone: Boolean = false,
     val serverUrl: String = "",
+    /** What the server can do beyond the basics; see [ServerFeatures]. */
+    val features: List<String> = emptyList(),
+    /** When [view] arrived, by this phone's clock, to count down [GameView.turnEndsInMs] from. */
+    val viewAt: Long = 0,
+    /** A game to switch to, e.g. the rematch. Cleared once opened. */
+    val moveTo: String? = null,
+) {
     /** The server can list lobbies publicly, so the host may switch it on and off. */
-    val publicGames: Boolean = false,
+    val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
+
     /** The server lets the host change the game in the lobby. */
-    val lobbySettings: Boolean = false,
-)
+    val lobbySettings: Boolean get() = ServerFeatures.LOBBY_SETTINGS in features
+
+    val turnLimits: Boolean get() = ServerFeatures.TURN_LIMITS in features
+    val rematch: Boolean get() = ServerFeatures.REMATCH in features
+}
 
 /** What the online game screen can ask for, on top of moves at the table. */
 interface OnlineGameActions : GameActions {
@@ -51,6 +62,9 @@ interface OnlineGameActions : GameActions {
 
     /** Host only, in the lobby: change the game, the table size, the target or the pace. */
     fun updateSettings(settings: SettingsRequest)
+
+    /** The screen has switched to [OnlineGameState.moveTo]. */
+    fun moved()
     fun leave()
     fun dismissError()
 }
@@ -73,12 +87,7 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
             } catch (_: OnlineException) {
                 emptyList()
             }
-            _state.update {
-                it.copy(
-                    publicGames = ServerFeatures.PUBLIC_GAMES in features,
-                    lobbySettings = ServerFeatures.LOBBY_SETTINGS in features,
-                )
-            }
+            _state.update { it.copy(features = features) }
         }
     }
 
@@ -104,6 +113,7 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
             val acked = if (old == null && v.events.size > 1) v.lastHand?.handNumber ?: 0 else s.ackedHand
             s.copy(
                 view = v,
+                viewAt = System.currentTimeMillis(),
                 error = null,
                 selected = s.selected.takeIf { v.isYourTurn },
                 ackedHand = acked,
@@ -193,11 +203,33 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
     override fun pass() = send(Action.Pass)
     override fun showHint() = Unit
 
-    /** Closes the end-of-hand summary. */
+    /** Closes the end-of-hand summary, or at the end of the match, starts or joins the rematch. */
     override fun overlayPrimary() {
-        val last = _state.value.view?.lastHand ?: return
+        val v = _state.value.view ?: return
+        if (v.status == GameStatus.FINISHED) {
+            rematch()
+            return
+        }
+        val last = v.lastHand ?: return
         _state.update { it.copy(ackedHand = last.handNumber) }
     }
+
+    private fun rematch() {
+        if (_state.value.busy) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true) }
+            try {
+                val next = repo.api().rematch(id)
+                _state.update { it.copy(moveTo = next.id) }
+            } catch (e: OnlineException) {
+                _state.update { it.copy(error = e.message) }
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    override fun moved() = _state.update { it.copy(moveTo = null) }
 
     private fun showingLastHand(): Boolean {
         val s = _state.value

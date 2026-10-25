@@ -143,6 +143,8 @@ class KtorOnlineApi(
     override suspend fun updateSettings(id: String, settings: SettingsRequest): GameView =
         call { client.post { endpoint("/games/$id/settings"); jsonBody(settings) } }
 
+    override suspend fun rematch(id: String): GameView = call { client.post { endpoint("/games/$id/rematch") } }
+
     override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
         call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }
 

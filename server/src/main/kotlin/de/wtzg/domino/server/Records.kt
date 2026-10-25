@@ -33,8 +33,27 @@ data class GameRecord(
     val createdAt: Long,
     val updatedAt: Long,
     val visibility: Visibility = Visibility.PRIVATE,
+    /** Seconds per turn; 0 is no limit. */
+    val turnLimitSeconds: Int = 0,
+    /** The seat that ran out of time, which ended the game. */
+    val timedOut: Int? = null,
+    /** The lobby set up as a rematch of this game, once someone asked for one. */
+    val rematchId: String? = null,
 ) {
     val hostSeat: Int get() = 0
+
+    /**
+     * When the person to move runs out of time, or null when no clock is running: no limit,
+     * not playing, or a computer to move (they play at once). Every move saves the game, so
+     * the clock starts again from [updatedAt] for each turn.
+     */
+    val turnDeadline: Long?
+        get() {
+            if (status != GameStatus.PLAYING || turnLimitSeconds <= 0) return null
+            val round = match?.round ?: return null
+            if (round.isOver || seats.getOrNull(round.turn)?.playerId == null) return null
+            return updatedAt + turnLimitSeconds * 1000L
+        }
 
     /** Listed in the open games: public, still in the lobby, with a seat free. */
     val isOpen: Boolean

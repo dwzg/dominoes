@@ -9,20 +9,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,11 +36,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.feature.play.rulesSummary
 import de.wtzg.domino.protocol.CreateGameRequest
+import de.wtzg.domino.protocol.Limits
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +53,8 @@ fun OnlineCreateScreen(
     busy: Boolean,
     /** The server can list public games; otherwise every game is invite only. */
     allowPublic: Boolean,
+    /** The server can enforce a time per turn. */
+    allowTurnLimit: Boolean,
     onBack: () -> Unit,
     onCreate: (CreateGameRequest) -> Unit,
 ) {
@@ -52,6 +63,7 @@ fun OnlineCreateScreen(
     var target by rememberSaveable { mutableIntStateOf(GameMode.ALL_FIVES.defaultTarget) }
     var pace by rememberSaveable { mutableStateOf(Pace.LIVE) }
     var visibility by rememberSaveable { mutableStateOf(Visibility.PRIVATE) }
+    var turnLimit by rememberSaveable { mutableIntStateOf(TurnLimits.default(Pace.LIVE)) }
 
     Scaffold(
         topBar = {
@@ -77,7 +89,9 @@ fun OnlineCreateScreen(
                 onMode = { mode = it; target = it.defaultTarget },
                 onPlayers = { players = it },
                 onTarget = { target = it },
-                onPace = { pace = it },
+                onPace = { pace = it; turnLimit = TurnLimits.default(it) },
+                turnLimit = turnLimit.takeIf { allowTurnLimit },
+                onTurnLimit = { turnLimit = it },
             )
 
             if (allowPublic) {
@@ -105,7 +119,7 @@ fun OnlineCreateScreen(
             Button(
                 onClick = {
                     val v = if (allowPublic) visibility else Visibility.PRIVATE
-                    onCreate(CreateGameRequest(mode, players, target, pace, v))
+                    onCreate(CreateGameRequest(mode, players, target, pace, v, if (allowTurnLimit) turnLimit else TurnLimits.NONE))
                 },
                 enabled = !busy,
                 modifier = Modifier
@@ -138,7 +152,11 @@ fun GameSettingsFields(
     onTarget: (Int) -> Unit,
     onPace: (Pace) -> Unit,
     minPlayers: Int = 2,
+    /** Seconds per turn, or null to leave the choice out (servers without turn limits). */
+    turnLimit: Int? = null,
+    onTurnLimit: (Int) -> Unit = {},
 ) {
+    var customTarget by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Label("Game")
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -172,14 +190,20 @@ fun GameSettingsFields(
         )
 
         Label("Play to")
+        val presets = listOf(mode.defaultTarget) + listOf(60, 100, 150).filter { it != mode.defaultTarget }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (listOf(mode.defaultTarget) + listOf(60, 100, 150).filter { it != mode.defaultTarget }).forEach { t ->
+            presets.forEach { t ->
                 FilterChip(
                     selected = target == t,
                     onClick = { onTarget(t) },
                     label = { Text(if (t == mode.defaultTarget) "$t · Red Dead" else "$t") },
                 )
             }
+            FilterChip(
+                selected = target !in presets,
+                onClick = { customTarget = true },
+                label = { Text(if (target in presets) "Custom" else "Custom: $target") },
+            )
         }
 
         Label("Pace")
@@ -199,5 +223,53 @@ fun GameSettingsFields(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (turnLimit != null) {
+            Label("Time per turn")
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Keep a limit that came from elsewhere (e.g. the other pace) visible and selected.
+                (TurnLimits.choices(pace) + listOf(turnLimit).filter { it !in TurnLimits.choices(pace) }).forEach { s ->
+                    FilterChip(selected = turnLimit == s, onClick = { onTurnLimit(s) }, label = { Text(TurnLimits.label(s)) })
+                }
+            }
+            Text(
+                if (turnLimit == TurnLimits.NONE) "Players can take as long as they like."
+                else "If the player to move runs out of time, the game ends there and nobody wins.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
+
+    if (customTarget) {
+        CustomTargetDialog(target, onDismiss = { customTarget = false }) { t ->
+            customTarget = false
+            onTarget(t)
+        }
+    }
+}
+
+/** Any target from [Limits.TARGET_MIN] to [Limits.TARGET_MAX]. */
+@Composable
+private fun CustomTargetDialog(current: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(current.toString()) }
+    val value = text.toIntOrNull()?.takeIf { it in Limits.TARGET_MIN..Limits.TARGET_MAX }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Play to") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { v -> text = v.filter(Char::isDigit).take(4) },
+                label = { Text("Target score") },
+                supportingText = { Text("${Limits.TARGET_MIN} to ${Limits.TARGET_MAX}") },
+                isError = value == null,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { value?.let(onSave) }),
+            )
+        },
+        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text("Set") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

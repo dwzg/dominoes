@@ -27,11 +27,14 @@ data class OnlineHomeState(
     val open: String? = null,
     /** Set when this app and the server can't fully work together; says who should update. */
     val compatibility: String? = null,
-    /** The server lists public lobbies (older servers only have invite codes). */
-    val publicGames: Boolean = false,
+    /** What the server can do beyond the basics; see [ServerFeatures]. */
+    val features: List<String> = emptyList(),
     /** Public lobbies you could join. */
     val openGames: List<OpenGame> = emptyList(),
-)
+) {
+    /** The server lists public lobbies (older servers only have invite codes). */
+    val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
+}
 
 /** The oldest server protocol this app needs. Raise only when the app relies on something new. */
 const val REQUIRED_SERVER_PROTOCOL = 1
@@ -101,15 +104,15 @@ class OnlineHomeViewModel(
         } catch (_: OnlineException) {
             null
         }
-        val publicGames = info != null && ServerFeatures.PUBLIC_GAMES in info.features
+        val features = info?.features.orEmpty()
         _state.update {
             it.copy(
                 compatibility = info?.let(::compatibilityProblem),
-                publicGames = publicGames,
-                openGames = if (publicGames) it.openGames else emptyList(),
+                features = features,
+                openGames = if (ServerFeatures.PUBLIC_GAMES in features) it.openGames else emptyList(),
             )
         }
-        if (publicGames) refreshOpenGames()
+        if (_state.value.publicGames) refreshOpenGames()
     }
 
     override fun setServer(url: String) = launchSafely { settings.update { it.copy(serverUrl = url.trim()) } }

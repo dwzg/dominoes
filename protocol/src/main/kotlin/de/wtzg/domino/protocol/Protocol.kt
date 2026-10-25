@@ -51,11 +51,19 @@ data class CreateGameRequest(
     val pace: Pace,
     /** Apps from before public games don't send this; their games stay private. */
     val visibility: Visibility = Visibility.PRIVATE,
+    /** How long a player has for each turn, in seconds; 0 is no limit. See [TurnLimits]. */
+    val turnLimitSeconds: Int = 0,
 )
 
 /** The host changes the game before it starts. Seats already taken are kept. */
 @Serializable
-data class SettingsRequest(val mode: GameMode, val players: Int, val target: Int, val pace: Pace)
+data class SettingsRequest(
+    val mode: GameMode,
+    val players: Int,
+    val target: Int,
+    val pace: Pace,
+    val turnLimitSeconds: Int = 0,
+)
 
 /** The host lists the lobby in the open games, or takes it off again. */
 @Serializable
@@ -162,6 +170,14 @@ data class GameView(
     val winner: Int?,
     val updatedAt: Long,
     val visibility: Visibility = Visibility.PRIVATE,
+    /** Time per turn in seconds; 0 is no limit. */
+    val turnLimitSeconds: Int = 0,
+    /** How long the player to move had left when this view was sent, or null with no limit. */
+    val turnEndsInMs: Long? = null,
+    /** The seat that ran out of time. The game ended there, with nobody winning. */
+    val timedOut: Int? = null,
+    /** A rematch someone has set up after this game; POST /games/{id}/rematch joins it. */
+    val rematchId: String? = null,
 ) {
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }
@@ -180,6 +196,7 @@ data class OpenGame(
     /** Seats already taken by people. */
     val taken: Int,
     val updatedAt: Long,
+    val turnLimitSeconds: Int = 0,
 )
 
 /** A line in "your games". */
@@ -197,6 +214,8 @@ data class GameSummary(
     val winner: Int?,
     val version: Int,
     val updatedAt: Long,
+    /** The seat that ran out of time, if that's how the game ended. */
+    val timedOut: Int? = null,
 ) {
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }
@@ -204,4 +223,38 @@ data class GameSummary(
 object Limits {
     const val NAME_MAX = 20
     const val CODE_LENGTH = 6
+    const val TARGET_MIN = 10
+    const val TARGET_MAX = 1000
+
+    /** Public lobbies one player may have listed at once. */
+    const val OPEN_GAMES_PER_HOST = 3
+}
+
+/** The time limits offered per turn, in seconds (0 is no limit), and the default for each pace. */
+object TurnLimits {
+    const val NONE = 0
+    const val MINUTE = 60
+    const val DAY = 24 * 60 * 60
+
+    fun choices(pace: Pace): List<Int> = when (pace) {
+        Pace.LIVE -> listOf(NONE, 30, MINUTE, 2 * MINUTE, 5 * MINUTE)
+        Pace.TURN_BASED -> listOf(NONE, DAY, 3 * DAY, 7 * DAY)
+    }
+
+    fun default(pace: Pace): Int = when (pace) {
+        Pace.LIVE -> 2 * MINUTE
+        Pace.TURN_BASED -> 3 * DAY
+    }
+
+    /** The server accepts no limit, or anything from 15 seconds to 30 days. */
+    fun isValid(seconds: Int): Boolean = seconds == NONE || seconds in 15..30 * DAY
+
+    /** "30 s", "2 min", "3 days", or "No limit". */
+    fun label(seconds: Int): String = when {
+        seconds == NONE -> "No limit"
+        seconds % DAY == 0 -> (seconds / DAY).let { if (it == 1) "1 day" else "$it days" }
+        seconds % (60 * MINUTE) == 0 -> "${seconds / (60 * MINUTE)} h"
+        seconds % MINUTE == 0 -> "${seconds / MINUTE} min"
+        else -> "$seconds s"
+    }
 }

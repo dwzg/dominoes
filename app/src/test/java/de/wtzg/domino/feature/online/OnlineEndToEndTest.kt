@@ -116,6 +116,40 @@ class OnlineEndToEndTest {
     }
 
     @Test
+    fun bothPlayersLandInTheSameRematch() = runBlocking {
+        val ann = phone("ann-rematch")
+        val bob = phone("bob-rematch")
+        ann.register("Ann")
+        bob.register("Bob")
+        // A custom target, and one move each so the game ends quickly once someone leaves.
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 13, pace = Pace.LIVE))
+        assertEquals(13, lobby.rules.target)
+        bob.api().join(lobby.code)
+        ann.api().start(lobby.id, Difficulty.EASY)
+        // Play until it's over: whoever is to move plays the first legal move, draws or passes.
+        var v = ann.api().game(lobby.id)
+        var steps = 0
+        while (v.status != GameStatus.FINISHED) {
+            val mover = if (v.turn == v.yourSeat) ann else bob
+            val mine = mover.api().game(lobby.id)
+            val action = when {
+                mine.legalMoves.isNotEmpty() -> Action.Play(mine.legalMoves.first())
+                mine.canDraw -> Action.Draw
+                else -> Action.Pass
+            }
+            mover.api().act(lobby.id, action, mine.version)
+            v = ann.api().game(lobby.id)
+            assertTrue("match never ends", ++steps < 2_000)
+        }
+        val first = bob.api().rematch(lobby.id)
+        assertEquals(first.id, ann.api().game(lobby.id).rematchId)
+        val second = ann.api().rematch(lobby.id)
+        assertEquals(first.id, second.id)
+        assertEquals(listOf("Bob", "Ann"), second.seats.map { it.name })
+        assertEquals(13, second.rules.target)
+    }
+
+    @Test
     fun friendsCreateJoinAndPlay() = runBlocking {
         val ann = phone("ann")
         val bob = phone("bob")

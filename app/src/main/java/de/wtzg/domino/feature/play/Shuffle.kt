@@ -59,9 +59,12 @@ fun ShuffleAnimation(active: Boolean, yourTiles: Int, opponentTiles: List<Int>, 
     // Time into the animation; SHUFFLE_MS means finished, so nothing shows until a hand begins.
     val clock = remember { Animatable(SHUFFLE_MS.toFloat()) }
     var shuffles by remember { mutableIntStateOf(0) }
-    LaunchedEffect(active) {
-        if (active) {
-            shuffles++
+    // Each new hand starts a shuffle...
+    LaunchedEffect(active) { if (active) shuffles++ }
+    // ...which then plays to the end on its own. Online, someone can open the hand while it
+    // runs; tying the animation to [active] would cancel it and leave the tiles frozen.
+    LaunchedEffect(shuffles) {
+        if (shuffles > 0) {
             clock.snapTo(0f)
             clock.animateTo(SHUFFLE_MS.toFloat(), tween(SHUFFLE_MS.toInt(), easing = LinearEasing))
         }

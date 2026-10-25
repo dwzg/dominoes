@@ -40,6 +40,9 @@ data class ServerInfo(
 object ServerFeatures {
     /** Public lobbies: GET /games/open and POST /games/{id}/visibility. */
     const val PUBLIC_GAMES = "public-games"
+
+    /** The host can change the game in the lobby: POST /games/{id}/settings. */
+    const val LOBBY_SETTINGS = "lobby-settings"
 }
 
 /** The protocol version a game mode was added in; apps speaking older protocols don't know it. */

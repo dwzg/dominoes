@@ -14,6 +14,7 @@ import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.ProtocolVersion
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.ServerInfo
+import de.wtzg.domino.protocol.SettingsRequest
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import de.wtzg.domino.protocol.RenameRequest
@@ -138,6 +139,9 @@ class KtorOnlineApi(
         call { client.post { endpoint("/games/$id/start"); jsonBody(StartRequest(difficulty)) } }
 
     override suspend fun openGames(): List<OpenGame> = call { client.get { endpoint("/games/open") } }
+
+    override suspend fun updateSettings(id: String, settings: SettingsRequest): GameView =
+        call { client.post { endpoint("/games/$id/settings"); jsonBody(settings) } }
 
     override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
         call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }

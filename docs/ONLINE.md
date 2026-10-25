@@ -136,6 +136,7 @@ The rules for changing the protocol are at the top of
 | GET | `/games/open` | Public lobbies you could join |
 | POST | `/games/join` | Join `{code}` |
 | GET | `/games/{id}` | Your view of a game |
+| POST | `/games/{id}/settings` | Host changes the game in the lobby `{mode, players, target, pace}`; never fewer seats than people seated |
 | POST | `/games/{id}/visibility` | Host lists or hides the lobby `{visibility}` |
 | POST | `/games/{id}/start` | Host starts `{difficulty}` |
 | POST | `/games/{id}/actions` | `{action: play/draw/pass/leave, version}` |

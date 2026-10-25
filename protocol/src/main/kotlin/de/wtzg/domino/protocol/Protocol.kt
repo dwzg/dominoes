@@ -53,6 +53,10 @@ data class CreateGameRequest(
     val visibility: Visibility = Visibility.PRIVATE,
 )
 
+/** The host changes the game before it starts. Seats already taken are kept. */
+@Serializable
+data class SettingsRequest(val mode: GameMode, val players: Int, val target: Int, val pace: Pace)
+
 /** The host lists the lobby in the open games, or takes it off again. */
 @Serializable
 data class VisibilityRequest(val visibility: Visibility)

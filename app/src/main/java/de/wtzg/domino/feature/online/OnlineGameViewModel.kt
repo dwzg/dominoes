@@ -13,6 +13,7 @@ import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.PublicEvent
 import de.wtzg.domino.protocol.ServerFeatures
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.legalMoves
 import de.wtzg.domino.ui.components.TableBadge
@@ -35,6 +36,8 @@ data class OnlineGameState(
     val serverUrl: String = "",
     /** The server can list lobbies publicly, so the host may switch it on and off. */
     val publicGames: Boolean = false,
+    /** The server lets the host change the game in the lobby. */
+    val lobbySettings: Boolean = false,
 )
 
 /** What the online game screen can ask for, on top of moves at the table. */
@@ -45,6 +48,9 @@ interface OnlineGameActions : GameActions {
 
     /** Host only, in the lobby: list the game under Open games, or hide it. */
     fun setVisibility(visibility: Visibility)
+
+    /** Host only, in the lobby: change the game, the table size, the target or the pace. */
+    fun updateSettings(settings: SettingsRequest)
     fun leave()
     fun dismissError()
 }
@@ -62,12 +68,17 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
             }
         }
         viewModelScope.launch {
-            val supported = try {
-                ServerFeatures.PUBLIC_GAMES in repo.api().serverInfo().features
+            val features = try {
+                repo.api().serverInfo().features
             } catch (_: OnlineException) {
-                false
+                emptyList()
             }
-            _state.update { it.copy(publicGames = supported) }
+            _state.update {
+                it.copy(
+                    publicGames = ServerFeatures.PUBLIC_GAMES in features,
+                    lobbySettings = ServerFeatures.LOBBY_SETTINGS in features,
+                )
+            }
         }
     }
 
@@ -139,12 +150,17 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
         }
     }
 
-    override fun setVisibility(visibility: Visibility) {
+    override fun setVisibility(visibility: Visibility) = lobbyChange { repo.api().setVisibility(id, visibility) }
+
+    override fun updateSettings(settings: SettingsRequest) = lobbyChange { repo.api().updateSettings(id, settings) }
+
+    /** A host's change in the lobby: one at a time, showing the server's answer or its error. */
+    private fun lobbyChange(request: suspend () -> GameView) {
         if (_state.value.busy) return
         viewModelScope.launch {
             _state.update { it.copy(busy = true) }
             try {
-                apply(repo.api().setVisibility(id, visibility))
+                apply(request())
             } catch (e: OnlineException) {
                 _state.update { it.copy(error = e.message) }
             } finally {

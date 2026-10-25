@@ -69,59 +69,15 @@ fun OnlineCreateScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Label("Game")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GameMode.entries.forEach { m ->
-                    FilterChip(
-                        selected = mode == m,
-                        onClick = { mode = m; target = m.defaultTarget },
-                        label = { Text(m.title) },
-                    )
-                }
-            }
-            Text(mode.rulesSummary(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            Label("Players at the table")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                (2..4).forEachIndexed { i, n ->
-                    SegmentedButton(selected = players == n, onClick = { players = n }, shape = SegmentedButtonDefaults.itemShape(i, 3)) {
-                        Text("$n")
-                    }
-                }
-            }
-            Text(
-                "Seats nobody takes are filled with computer players when you start.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Label("Play to")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (listOf(mode.defaultTarget) + listOf(60, 100, 150).filter { it != mode.defaultTarget }).forEach { t ->
-                    FilterChip(
-                        selected = target == t,
-                        onClick = { target = t },
-                        label = { Text(if (t == mode.defaultTarget) "$t · Red Dead" else "$t") },
-                    )
-                }
-            }
-
-            Label("Pace")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                SegmentedButton(selected = pace == Pace.LIVE, onClick = { pace = Pace.LIVE }, shape = SegmentedButtonDefaults.itemShape(0, 2)) {
-                    Text("Live")
-                }
-                SegmentedButton(
-                    selected = pace == Pace.TURN_BASED,
-                    onClick = { pace = Pace.TURN_BASED },
-                    shape = SegmentedButtonDefaults.itemShape(1, 2),
-                ) { Text("Turn by turn") }
-            }
-            Text(
-                if (pace == Pace.LIVE) "Everyone plays at the same time, like sitting at one table."
-                else "Take your turn whenever you like. The app lets you know when it's your move.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            GameSettingsFields(
+                mode = mode,
+                players = players,
+                target = target,
+                pace = pace,
+                onMode = { mode = it; target = it.defaultTarget },
+                onPlayers = { players = it },
+                onTarget = { target = it },
+                onPace = { pace = it },
             )
 
             if (allowPublic) {
@@ -164,4 +120,84 @@ fun OnlineCreateScreen(
 @Composable
 private fun Label(text: String) {
     Text(text, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+}
+
+/**
+ * The game, table size, target and pace, as chosen when creating a game and when the host
+ * changes them in the lobby. [minPlayers] keeps the table from shrinking below the people seated.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GameSettingsFields(
+    mode: GameMode,
+    players: Int,
+    target: Int,
+    pace: Pace,
+    onMode: (GameMode) -> Unit,
+    onPlayers: (Int) -> Unit,
+    onTarget: (Int) -> Unit,
+    onPace: (Pace) -> Unit,
+    minPlayers: Int = 2,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Label("Game")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GameMode.entries.forEach { m ->
+                FilterChip(
+                    selected = mode == m,
+                    onClick = { onMode(m) },
+                    label = { Text(m.title) },
+                )
+            }
+        }
+        Text(mode.rulesSummary(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        Label("Players at the table")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            (2..4).forEachIndexed { i, n ->
+                SegmentedButton(
+                    selected = players == n,
+                    onClick = { onPlayers(n) },
+                    enabled = n >= minPlayers,
+                    shape = SegmentedButtonDefaults.itemShape(i, 3),
+                ) { Text("$n") }
+            }
+        }
+        Text(
+            if (minPlayers > 2) "$minPlayers people are already seated, so the table can't be smaller. " +
+                "Seats nobody takes are filled with computer players when you start."
+            else "Seats nobody takes are filled with computer players when you start.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Label("Play to")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (listOf(mode.defaultTarget) + listOf(60, 100, 150).filter { it != mode.defaultTarget }).forEach { t ->
+                FilterChip(
+                    selected = target == t,
+                    onClick = { onTarget(t) },
+                    label = { Text(if (t == mode.defaultTarget) "$t · Red Dead" else "$t") },
+                )
+            }
+        }
+
+        Label("Pace")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SegmentedButton(selected = pace == Pace.LIVE, onClick = { onPace(Pace.LIVE) }, shape = SegmentedButtonDefaults.itemShape(0, 2)) {
+                Text("Live")
+            }
+            SegmentedButton(
+                selected = pace == Pace.TURN_BASED,
+                onClick = { onPace(Pace.TURN_BASED) },
+                shape = SegmentedButtonDefaults.itemShape(1, 2),
+            ) { Text("Turn by turn") }
+        }
+        Text(
+            if (pace == Pace.LIVE) "Everyone plays at the same time, like sitting at one table."
+            else "Take your turn whenever you like. The app lets you know when it's your move.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

@@ -16,6 +16,7 @@ import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.PublicEvent
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.SeatView
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.sinceProtocol
 import kotlinx.coroutines.sync.Mutex
@@ -94,9 +95,13 @@ class GameService(
 
     // --- Lobby -------------------------------------------------------------------------------
 
+    private fun checkTable(players: Int, target: Int) {
+        if (players !in 2..4) badRequest("2 to 4 players")
+        if (target !in 10..1000) badRequest("Target must be between 10 and 1000")
+    }
+
     fun create(host: PlayerRecord, req: CreateGameRequest): GameRecord {
-        if (req.players !in 2..4) badRequest("2 to 4 players")
-        if (req.target !in 10..1000) badRequest("Target must be between 10 and 1000")
+        checkTable(req.players, req.target)
         val now = clock()
         val g = GameRecord(
             id = UUID.randomUUID().toString(),
@@ -111,6 +116,26 @@ class GameService(
         )
         store.saveGame(g)
         return g
+    }
+
+    /**
+     * The host changes the game before it starts. Everyone already seated keeps a seat:
+     * the table can't shrink below them, and when it shrinks they move up to fill the gaps.
+     */
+    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int = 1): GameRecord = withGame(id) { g ->
+        if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change the game")
+        if (g.status != GameStatus.LOBBY) conflict("The game has already started")
+        checkTable(req.players, req.target)
+        if (req.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
+        val people = g.seats.filter { !it.isFree }
+        if (req.players < people.size) conflict("${people.size} people are already at the table")
+        // The host stays in seat 0; everyone else keeps their order, then the free seats.
+        val seats = if (req.players >= g.seats.size) {
+            g.seats + List(req.players - g.seats.size) { SeatRecord() }
+        } else {
+            people + List(req.players - people.size) { SeatRecord() }
+        }
+        save(g.copy(rules = Rules(req.mode, req.players, req.target), pace = req.pace, seats = seats))
     }
 
     /** The host lists the lobby in the open games, or takes it off. Only before the game starts. */

@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,6 +64,7 @@ import de.wtzg.domino.feature.play.GameScreen
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -153,6 +155,13 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
     val link = "${state.serverUrl}/join/${v.code}"
     var difficulty by rememberSaveable { mutableStateOf(Difficulty.NORMAL) }
     val free = v.seats.count { it.playerId == null && !it.isAi }
+    var editingSettings by rememberSaveable { mutableStateOf(false) }
+    if (editingSettings) {
+        LobbySettingsDialog(v, onDismiss = { editingSettings = false }) { req ->
+            editingSettings = false
+            vm.updateSettings(req)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -197,6 +206,9 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    if (host && state.lobbySettings) {
+                        TextButton(onClick = { editingSettings = true }, enabled = !state.busy) { Text("Change settings") }
+                    }
                     Button(
                         onClick = {
                             val text = "Join my dominoes game! Open the Dominoes app and enter code ${v.code}, or tap: $link"
@@ -307,3 +319,37 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
         }
     }
 }
+
+/** The host changes the game before it starts; starts from the current settings. */
+@Composable
+private fun LobbySettingsDialog(v: GameView, onDismiss: () -> Unit, onSave: (SettingsRequest) -> Unit) {
+    var mode by rememberSaveable { mutableStateOf(v.rules.mode) }
+    var players by rememberSaveable { mutableIntStateOf(v.rules.players) }
+    var target by rememberSaveable { mutableIntStateOf(v.rules.target) }
+    var pace by rememberSaveable { mutableStateOf(v.pace) }
+    val seated = v.seats.count { it.playerId != null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Game settings") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                GameSettingsFields(
+                    mode = mode,
+                    players = players,
+                    target = target,
+                    pace = pace,
+                    onMode = { mode = it; target = it.defaultTarget },
+                    onPlayers = { players = it },
+                    onTarget = { target = it },
+                    onPace = { pace = it },
+                    minPlayers = seated.coerceAtLeast(2),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(SettingsRequest(mode, players, target, pace)) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+

@@ -95,6 +95,27 @@ class OnlineEndToEndTest {
     }
 
     @Test
+    fun hostChangesTheGameInTheLobby() = runBlocking {
+        val ann = phone("ann-settings")
+        val bob = phone("bob-settings")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.LOBBY_SETTINGS in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE))
+        bob.api().join(lobby.code)
+
+        ann.api().updateSettings(lobby.id, de.wtzg.domino.protocol.SettingsRequest(GameMode.BLOCK, 3, 60, Pace.TURN_BASED))
+        val seen = bob.api().game(lobby.id)
+        assertEquals(GameMode.BLOCK, seen.rules.mode)
+        assertEquals(3, seen.seats.size)
+        assertEquals(Pace.TURN_BASED, seen.pace)
+
+        // Only the host may change it.
+        val notHost = runCatching { bob.api().updateSettings(lobby.id, de.wtzg.domino.protocol.SettingsRequest(GameMode.DRAW, 3, 60, Pace.LIVE)) }
+        assertEquals(403, (notHost.exceptionOrNull() as OnlineException).status)
+    }
+
+    @Test
     fun friendsCreateJoinAndPlay() = runBlocking {
         val ann = phone("ann")
         val bob = phone("bob")

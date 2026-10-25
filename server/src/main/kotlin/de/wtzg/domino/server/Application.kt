@@ -8,6 +8,7 @@ import de.wtzg.domino.protocol.ProtocolJson
 import de.wtzg.domino.protocol.ProtocolVersion
 import de.wtzg.domino.protocol.ServerFeatures
 import de.wtzg.domino.protocol.ServerInfo
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
@@ -86,7 +87,7 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         get("/health") { call.respondText("ok") }
         get("/version") {
             call.respond(
-                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = listOf(ServerFeatures.PUBLIC_GAMES)),
+                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = listOf(ServerFeatures.PUBLIC_GAMES, ServerFeatures.LOBBY_SETTINGS)),
             )
         }
 
@@ -119,6 +120,13 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         get("/games/{id}") {
             val p = call.player()
             val g = service.game(p, call.parameters["id"]!!, call.protocol())
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        post("/games/{id}/settings") {
+            val p = call.player()
+            val g = service.updateSettings(p, call.parameters["id"]!!, call.receive<SettingsRequest>(), call.protocol())
+            hub.changed(g.id)
             call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
         }
 

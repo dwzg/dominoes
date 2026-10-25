@@ -8,6 +8,7 @@ import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.ServerInfo
+import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 import kotlinx.coroutines.flow.Flow
 
@@ -29,6 +30,9 @@ interface OnlineApi {
 
     /** Public lobbies you could join. Needs a server with [de.wtzg.domino.protocol.ServerFeatures.PUBLIC_GAMES]. */
     suspend fun openGames(): List<OpenGame>
+
+    /** The host changes the game in the lobby. Needs [de.wtzg.domino.protocol.ServerFeatures.LOBBY_SETTINGS]. */
+    suspend fun updateSettings(id: String, settings: SettingsRequest): GameView
 
     /** The host lists the lobby publicly or hides it again. */
     suspend fun setVisibility(id: String, visibility: Visibility): GameView

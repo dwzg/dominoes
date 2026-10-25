@@ -25,6 +25,10 @@ enum class Pace { LIVE, TURN_BASED }
 @Serializable
 enum class GameStatus { LOBBY, PLAYING, FINISHED }
 
+/** Who can find a game in its lobby: only people with the code, or anyone in the open games list. */
+@Serializable
+enum class Visibility { PRIVATE, PUBLIC }
+
 // --- Players ---------------------------------------------------------------------------------
 
 @Serializable
@@ -40,7 +44,18 @@ data class RenameRequest(val name: String)
 // --- Games -----------------------------------------------------------------------------------
 
 @Serializable
-data class CreateGameRequest(val mode: GameMode, val players: Int, val target: Int, val pace: Pace)
+data class CreateGameRequest(
+    val mode: GameMode,
+    val players: Int,
+    val target: Int,
+    val pace: Pace,
+    /** Apps from before public games don't send this; their games stay private. */
+    val visibility: Visibility = Visibility.PRIVATE,
+)
+
+/** The host lists the lobby in the open games, or takes it off again. */
+@Serializable
+data class VisibilityRequest(val visibility: Visibility)
 
 @Serializable
 data class JoinRequest(val code: String)
@@ -142,9 +157,26 @@ data class GameView(
     val lastHand: HandSummary?,
     val winner: Int?,
     val updatedAt: Long,
+    val visibility: Visibility = Visibility.PRIVATE,
 ) {
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }
+
+/** A public game waiting for players, as anyone may see it in the open games list. */
+@Serializable
+data class OpenGame(
+    val id: String,
+    /** Join with this code, like any invite. */
+    val code: String,
+    val mode: GameMode,
+    val target: Int,
+    val pace: Pace,
+    val host: String,
+    val seats: Int,
+    /** Seats already taken by people. */
+    val taken: Int,
+    val updatedAt: Long,
+)
 
 /** A line in "your games". */
 @Serializable

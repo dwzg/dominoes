@@ -15,6 +15,9 @@ interface Store {
     fun game(id: String): GameRecord?
     fun gameByCode(code: String): GameRecord?
     fun gamesOf(playerId: String): List<GameRecord>
+
+    /** Public lobbies with a free seat, newest first. */
+    fun openGames(limit: Int): List<GameRecord>
     fun deleteGame(id: String)
 }
 
@@ -30,6 +33,7 @@ class InMemoryStore : Store {
     override fun game(id: String) = games[id]
     override fun gameByCode(code: String) = games.values.firstOrNull { it.code == code }
     override fun gamesOf(playerId: String) = games.values.filter { playerId in it.playerIds }
+    override fun openGames(limit: Int) = games.values.filter { it.isOpen }.sortedByDescending { it.updatedAt }.take(limit)
     override fun deleteGame(id: String) { games.remove(id) }
 }
 
@@ -77,6 +81,11 @@ class SqliteStore(path: String) : Store {
                 "CREATE TABLE IF NOT EXISTS game_players (game_id TEXT NOT NULL, player_id TEXT NOT NULL, " +
                     "PRIMARY KEY (game_id, player_id))",
                 "CREATE INDEX IF NOT EXISTS game_players_player ON game_players(player_id)",
+            ),
+            // 2: public lobbies. Every game before this was private, so there's nothing to fill in.
+            listOf(
+                "CREATE TABLE IF NOT EXISTS open_games (game_id TEXT PRIMARY KEY, updated_at INTEGER NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS open_games_updated ON open_games(updated_at)",
             ),
         )
     }
@@ -130,6 +139,13 @@ class SqliteStore(path: String) : Store {
             prepareStatement("INSERT OR IGNORE INTO game_players (game_id, player_id) VALUES (?, ?)").use { st ->
                 g.playerIds.forEach { pid -> st.setString(1, g.id); st.setString(2, pid); st.executeUpdate() }
             }
+            if (g.isOpen) {
+                prepareStatement("INSERT OR REPLACE INTO open_games (game_id, updated_at) VALUES (?, ?)").use {
+                    it.setString(1, g.id); it.setLong(2, g.updatedAt); it.executeUpdate()
+                }
+            } else {
+                prepareStatement("DELETE FROM open_games WHERE game_id = ?").use { it.setString(1, g.id); it.executeUpdate() }
+            }
             commit()
         } catch (e: Exception) {
             rollback()
@@ -164,7 +180,18 @@ class SqliteStore(path: String) : Store {
         }
     }
 
+    override fun openGames(limit: Int) = locked {
+        prepareStatement(
+            "SELECT g.data FROM games g JOIN open_games o ON o.game_id = g.id ORDER BY o.updated_at DESC LIMIT ?",
+        ).use {
+            it.setInt(1, limit)
+            // Checked again from the record, in case an older server changed the game without updating the list.
+            it.executeQuery().use { rs -> buildList { while (rs.next()) add(decode(rs.getString(1))) } }.filter { g -> g.isOpen }
+        }
+    }
+
     override fun deleteGame(id: String) = locked {
+        prepareStatement("DELETE FROM open_games WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM game_players WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM games WHERE id = ?").use { it.setString(1, id); it.executeUpdate() }
         Unit

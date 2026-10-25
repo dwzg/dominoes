@@ -32,7 +32,15 @@ data class ServerInfo(
     val version: String,
     val protocol: Int,
     val minProtocol: Int,
+    /** Optional things this server can do; see [ServerFeatures]. Older servers send none. */
+    val features: List<String> = emptyList(),
 )
+
+/** Names for [ServerInfo.features]. A feature is only added, never renamed. */
+object ServerFeatures {
+    /** Public lobbies: GET /games/open and POST /games/{id}/visibility. */
+    const val PUBLIC_GAMES = "public-games"
+}
 
 /** The protocol version a game mode was added in; apps speaking older protocols don't know it. */
 val GameMode.sinceProtocol: Int

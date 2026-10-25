@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +63,7 @@ import de.wtzg.domino.feature.play.GameScreen
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.Visibility
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -188,6 +192,11 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                         "${v.rules.mode.title} · to ${v.rules.target} · ${if (v.pace == Pace.LIVE) "live" else "turn by turn"}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    Text(
+                        if (v.visibility == Visibility.PUBLIC) "Open to anyone · listed under Open games" else "Invite only",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                     Button(
                         onClick = {
                             val text = "Join my dominoes game! Open the Dominoes app and enter code ${v.code}, or tap: $link"
@@ -228,6 +237,32 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                             if (i == v.hostSeat) Text("Host", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                }
+            }
+
+            if (host && state.publicGames) {
+                // Off the list once the seats are full or the game starts, so only offer it while it matters.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 480.dp)
+                        .toggleable(
+                            value = v.visibility == Visibility.PUBLIC,
+                            enabled = !state.busy,
+                            role = Role.Switch,
+                            onValueChange = { on -> vm.setVisibility(if (on) Visibility.PUBLIC else Visibility.PRIVATE) },
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Open to anyone", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "List this game under Open games so players on this server can join without a code.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = v.visibility == Visibility.PUBLIC, onCheckedChange = null, enabled = !state.busy)
                 }
             }
 

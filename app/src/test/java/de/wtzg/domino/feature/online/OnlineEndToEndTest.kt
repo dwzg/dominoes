@@ -12,6 +12,7 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.canDraw
 import de.wtzg.domino.protocol.legalMoves
 import de.wtzg.domino.protocol.mustPass
@@ -63,6 +64,34 @@ class OnlineEndToEndTest {
     private fun phone(name: String): OnlineRepository {
         val store = PreferenceDataStoreFactory.create(scope = scope) { tmp.newFile("$name.preferences_pb") }
         return OnlineRepository(store, SettingsRepository(store), onlineHttpClient(), defaultServer = url)
+    }
+
+    @Test
+    fun strangersFindPublicGamesAndJoin() = runBlocking {
+        val ann = phone("ann-public")
+        val bob = phone("bob-public")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.PUBLIC_GAMES in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+
+        val open = ann.api().create(
+            CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE, visibility = Visibility.PUBLIC),
+        )
+        val hidden = ann.api().create(CreateGameRequest(GameMode.ALL_FIVES, players = 2, target = 100, pace = Pace.LIVE))
+        assertEquals(Visibility.PUBLIC, open.visibility)
+        assertEquals(listOf(open.id), bob.api().openGames().map { it.id })
+
+        // Bob joins from the list, which fills the table and takes it off.
+        val listed = bob.api().openGames().single()
+        assertEquals("Ann", listed.host)
+        assertEquals(open.id, bob.api().join(listed.code).id)
+        assertTrue(bob.api().openGames().isEmpty())
+
+        // The host can list a private lobby later, and hide it again.
+        ann.api().setVisibility(hidden.id, Visibility.PUBLIC)
+        assertEquals(listOf(hidden.id), bob.api().openGames().map { it.id })
+        assertEquals(Visibility.PRIVATE, ann.api().setVisibility(hidden.id, Visibility.PRIVATE).visibility)
+        assertTrue(bob.api().openGames().isEmpty())
     }
 
     @Test

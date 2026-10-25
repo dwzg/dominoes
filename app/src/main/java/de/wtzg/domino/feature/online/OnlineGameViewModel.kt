@@ -12,6 +12,8 @@ import de.wtzg.domino.protocol.Action
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.PublicEvent
+import de.wtzg.domino.protocol.ServerFeatures
+import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.legalMoves
 import de.wtzg.domino.ui.components.TableBadge
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +33,8 @@ data class OnlineGameState(
     /** The game no longer exists (the host cancelled it, or you left). */
     val gone: Boolean = false,
     val serverUrl: String = "",
+    /** The server can list lobbies publicly, so the host may switch it on and off. */
+    val publicGames: Boolean = false,
 )
 
 /** What the online game screen can ask for, on top of moves at the table. */
@@ -38,6 +42,9 @@ interface OnlineGameActions : GameActions {
     /** Keeps the game up to date while the screen is visible. */
     suspend fun stayConnected()
     fun start(difficulty: Difficulty)
+
+    /** Host only, in the lobby: list the game under Open games, or hide it. */
+    fun setVisibility(visibility: Visibility)
     fun leave()
     fun dismissError()
 }
@@ -53,6 +60,14 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
                 repo.account.collect { a -> _state.update { it.copy(serverUrl = a.serverUrl) } }
             } catch (_: Exception) {
             }
+        }
+        viewModelScope.launch {
+            val supported = try {
+                ServerFeatures.PUBLIC_GAMES in repo.api().serverInfo().features
+            } catch (_: OnlineException) {
+                false
+            }
+            _state.update { it.copy(publicGames = supported) }
         }
     }
 
@@ -116,6 +131,20 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
             _state.update { it.copy(busy = true) }
             try {
                 apply(repo.api().start(id, difficulty))
+            } catch (e: OnlineException) {
+                _state.update { it.copy(error = e.message) }
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+        }
+    }
+
+    override fun setVisibility(visibility: Visibility) {
+        if (_state.value.busy) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true) }
+            try {
+                apply(repo.api().setVisibility(id, visibility))
             } catch (e: OnlineException) {
                 _state.update { it.copy(error = e.message) }
             } finally {

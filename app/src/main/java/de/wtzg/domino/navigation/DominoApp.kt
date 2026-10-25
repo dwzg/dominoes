@@ -262,7 +262,7 @@ private fun AppNavHost(
                     nav.navigate(OnlineGameRoute(id)) { popUpTo<OnlineCreateRoute> { inclusive = true } }
                 }
             }
-            OnlineCreateScreen(busy = s.busy, onBack = { nav.popBackStack() }, onCreate = vm::create)
+            OnlineCreateScreen(busy = s.busy, allowPublic = s.publicGames, onBack = { nav.popBackStack() }, onCreate = vm::create)
         }
         composable<OnlineGameRoute>(deepLinks = listOf(navDeepLink<OnlineGameRoute>(basePath = "dominoes://game"))) { e ->
             val id = e.toRoute<OnlineGameRoute>().id

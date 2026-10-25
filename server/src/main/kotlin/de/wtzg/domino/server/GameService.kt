@@ -12,9 +12,11 @@ import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.HandSummary
 import de.wtzg.domino.protocol.Limits
+import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.PublicEvent
 import de.wtzg.domino.protocol.Registration
 import de.wtzg.domino.protocol.SeatView
+import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.sinceProtocol
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,6 +43,11 @@ private fun GameRecord.requireProtocol(protocol: Int) {
 }
 
 private val AI_NAMES = listOf("Rosa", "Hank", "Mabel", "Otis")
+
+/** Public lobbies untouched for this long are left out of the open games. */
+const val OPEN_GAME_MAX_AGE_MS = 24L * 60 * 60 * 1000
+private const val OPEN_GAMES_SHOWN = 50
+private const val OPEN_GAMES_SCAN = 200
 private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O or 1/I mix-ups
 
 fun hashToken(token: String): String =
@@ -100,9 +107,41 @@ class GameService(
             status = GameStatus.LOBBY,
             createdAt = now,
             updatedAt = now,
+            visibility = req.visibility,
         )
         store.saveGame(g)
         return g
+    }
+
+    /** The host lists the lobby in the open games, or takes it off. Only before the game starts. */
+    suspend fun setVisibility(player: PlayerRecord, id: String, visibility: Visibility): GameRecord = withGame(id) { g ->
+        if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change who can join")
+        if (g.status != GameStatus.LOBBY) conflict("The game has already started")
+        if (g.visibility == visibility) g else save(g.copy(visibility = visibility))
+    }
+
+    /**
+     * Public lobbies [player] could join: not their own, with a free seat, in a mode their app
+     * knows, and touched in the last [OPEN_GAME_MAX_AGE_MS] so abandoned lobbies drop off.
+     */
+    fun openGames(player: PlayerRecord, protocol: Int = 1): List<OpenGame> {
+        val since = clock() - OPEN_GAME_MAX_AGE_MS
+        return store.openGames(OPEN_GAMES_SCAN)
+            .filter { it.updatedAt >= since && it.seatOf(player.id) < 0 && it.rules.mode.sinceProtocol <= protocol }
+            .take(OPEN_GAMES_SHOWN)
+            .map { g ->
+                OpenGame(
+                    id = g.id,
+                    code = g.code,
+                    mode = g.rules.mode,
+                    target = g.rules.target,
+                    pace = g.pace,
+                    host = g.seats[g.hostSeat].name,
+                    seats = g.seats.size,
+                    taken = g.seats.count { it.playerId != null },
+                    updatedAt = g.updatedAt,
+                )
+            }
     }
 
     private fun newCode(): String {
@@ -278,6 +317,7 @@ class GameService(
             lastHand = g.lastHand,
             winner = m?.winner,
             updatedAt = g.updatedAt,
+            visibility = g.visibility,
         )
     }
 

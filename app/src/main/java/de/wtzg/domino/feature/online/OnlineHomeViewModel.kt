@@ -8,6 +8,8 @@ import de.wtzg.domino.data.online.OnlineException
 import de.wtzg.domino.data.online.OnlineRepository
 import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameSummary
+import de.wtzg.domino.protocol.OpenGame
+import de.wtzg.domino.protocol.ServerFeatures
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +27,10 @@ data class OnlineHomeState(
     val open: String? = null,
     /** Set when this app and the server can't fully work together; says who should update. */
     val compatibility: String? = null,
+    /** The server lists public lobbies (older servers only have invite codes). */
+    val publicGames: Boolean = false,
+    /** Public lobbies you could join. */
+    val openGames: List<OpenGame> = emptyList(),
 )
 
 /** The oldest server protocol this app needs. Raise only when the app relies on something new. */
@@ -75,16 +81,35 @@ class OnlineHomeViewModel(
         } finally {
             _state.update { it.copy(loading = false) }
         }
+        if (_state.value.publicGames) refreshOpenGames()
+    }
+
+    /** The open games are extra: if they can't be loaded, the list just stays as it was. */
+    private suspend fun refreshOpenGames() {
+        if (_state.value.account?.registration == null) return
+        try {
+            val open = repo.api().openGames()
+            _state.update { it.copy(openGames = open) }
+        } catch (_: OnlineException) {
+        }
     }
 
     /** Asks the server which protocols it speaks; failures here are reported by the next real call. */
     private fun checkServer() = viewModelScope.launch {
-        val problem = try {
-            compatibilityProblem(repo.api().serverInfo())
+        val info = try {
+            repo.api().serverInfo()
         } catch (_: OnlineException) {
             null
         }
-        _state.update { it.copy(compatibility = problem) }
+        val publicGames = info != null && ServerFeatures.PUBLIC_GAMES in info.features
+        _state.update {
+            it.copy(
+                compatibility = info?.let(::compatibilityProblem),
+                publicGames = publicGames,
+                openGames = if (publicGames) it.openGames else emptyList(),
+            )
+        }
+        if (publicGames) refreshOpenGames()
     }
 
     override fun setServer(url: String) = launchSafely { settings.update { it.copy(serverUrl = url.trim()) } }

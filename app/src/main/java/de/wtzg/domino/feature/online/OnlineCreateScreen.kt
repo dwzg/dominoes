@@ -36,14 +36,22 @@ import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.feature.play.rulesSummary
 import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.Visibility
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OnlineCreateScreen(busy: Boolean, onBack: () -> Unit, onCreate: (CreateGameRequest) -> Unit) {
+fun OnlineCreateScreen(
+    busy: Boolean,
+    /** The server can list public games; otherwise every game is invite only. */
+    allowPublic: Boolean,
+    onBack: () -> Unit,
+    onCreate: (CreateGameRequest) -> Unit,
+) {
     var mode by rememberSaveable { mutableStateOf(GameMode.ALL_FIVES) }
     var players by rememberSaveable { mutableIntStateOf(2) }
     var target by rememberSaveable { mutableIntStateOf(GameMode.ALL_FIVES.defaultTarget) }
     var pace by rememberSaveable { mutableStateOf(Pace.LIVE) }
+    var visibility by rememberSaveable { mutableStateOf(Visibility.PRIVATE) }
 
     Scaffold(
         topBar = {
@@ -116,14 +124,39 @@ fun OnlineCreateScreen(busy: Boolean, onBack: () -> Unit, onCreate: (CreateGameR
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            if (allowPublic) {
+                Label("Who can join")
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = visibility == Visibility.PRIVATE,
+                        onClick = { visibility = Visibility.PRIVATE },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                    ) { Text("Invite only") }
+                    SegmentedButton(
+                        selected = visibility == Visibility.PUBLIC,
+                        onClick = { visibility = Visibility.PUBLIC },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    ) { Text("Anyone") }
+                }
+                Text(
+                    if (visibility == Visibility.PRIVATE) "Only people you send the code, link or QR code to can join."
+                    else "Listed under Open games for everyone on this server until the seats are full. You can still invite friends.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Button(
-                onClick = { onCreate(CreateGameRequest(mode, players, target, pace)) },
+                onClick = {
+                    val v = if (allowPublic) visibility else Visibility.PRIVATE
+                    onCreate(CreateGameRequest(mode, players, target, pace, v))
+                },
                 enabled = !busy,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
                     .height(52.dp),
-            ) { Text("Create and invite friends") }
+            ) { Text(if (allowPublic && visibility == Visibility.PUBLIC) "Create open game" else "Create and invite friends") }
         }
     }
 }

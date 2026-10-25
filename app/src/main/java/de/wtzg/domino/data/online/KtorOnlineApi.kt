@@ -8,6 +8,7 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.JoinRequest
+import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.ProtocolJson
 import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.ProtocolVersion
@@ -17,6 +18,8 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
+import de.wtzg.domino.protocol.Visibility
+import de.wtzg.domino.protocol.VisibilityRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
@@ -133,6 +136,11 @@ class KtorOnlineApi(
 
     override suspend fun start(id: String, difficulty: Difficulty): GameView =
         call { client.post { endpoint("/games/$id/start"); jsonBody(StartRequest(difficulty)) } }
+
+    override suspend fun openGames(): List<OpenGame> = call { client.get { endpoint("/games/open") } }
+
+    override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
+        call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }
 
     override suspend fun act(id: String, action: Action, version: Int): GameView? {
         val response = try {

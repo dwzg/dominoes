@@ -6,10 +6,12 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.JoinRequest
 import de.wtzg.domino.protocol.ProtocolJson
 import de.wtzg.domino.protocol.ProtocolVersion
+import de.wtzg.domino.protocol.ServerFeatures
 import de.wtzg.domino.protocol.ServerInfo
 import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
+import de.wtzg.domino.protocol.VisibilityRequest
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -82,7 +84,11 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
 
     routing {
         get("/health") { call.respondText("ok") }
-        get("/version") { call.respond(ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED)) }
+        get("/version") {
+            call.respond(
+                ServerInfo(serverVersion, ProtocolVersion.CURRENT, ProtocolVersion.MIN_SUPPORTED, features = listOf(ServerFeatures.PUBLIC_GAMES)),
+            )
+        }
 
         post("/players") {
             call.protocol()
@@ -93,6 +99,9 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         }
 
         get("/games") { call.respond(service.gamesOf(call.player(), call.protocol())) }
+
+        // Public lobbies anyone can join. Declared before /games/{id}; Ktor prefers the fixed path anyway.
+        get("/games/open") { call.respond(service.openGames(call.player(), call.protocol())) }
 
         post("/games") {
             val p = call.player()
@@ -110,6 +119,13 @@ fun Application.dominoServer(service: GameService, hub: LiveHub) {
         get("/games/{id}") {
             val p = call.player()
             val g = service.game(p, call.parameters["id"]!!, call.protocol())
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        post("/games/{id}/visibility") {
+            val p = call.player()
+            val g = service.setVisibility(p, call.parameters["id"]!!, call.receive<VisibilityRequest>().visibility)
+            hub.changed(g.id)
             call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
         }
 

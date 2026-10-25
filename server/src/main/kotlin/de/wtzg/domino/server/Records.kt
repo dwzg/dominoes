@@ -6,6 +6,7 @@ import de.wtzg.domino.engine.Rules
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.HandSummary
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.protocol.Visibility
 import kotlinx.serialization.Serializable
 
 /** A registered player. Only a hash of their token is stored. */
@@ -31,8 +32,14 @@ data class GameRecord(
     val version: Int = 0,
     val createdAt: Long,
     val updatedAt: Long,
+    val visibility: Visibility = Visibility.PRIVATE,
 ) {
     val hostSeat: Int get() = 0
+
+    /** Listed in the open games: public, still in the lobby, with a seat free. */
+    val isOpen: Boolean
+        get() = visibility == Visibility.PUBLIC && status == GameStatus.LOBBY && seats.any { it.isFree }
+
     fun seatOf(playerId: String): Int = seats.indexOfFirst { it.playerId == playerId }
     val playerIds: List<String> get() = seats.mapNotNull { it.playerId }
 }

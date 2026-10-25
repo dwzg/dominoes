@@ -43,6 +43,9 @@ interface OnlineApi {
     /** Returns the new view, or null if the game is gone (e.g. the host cancelled it). */
     suspend fun act(id: String, action: Action, version: Int): GameView?
 
-    /** Your view of the game, sent again on every change. Reconnects by itself while collected. */
-    fun live(id: String): Flow<GameView>
+    /**
+     * Your view of the game, sent again on every change. Reconnects by itself while collected.
+     * [onConnection] hears true once the server is sending, and false whenever the link drops.
+     */
+    fun live(id: String, onConnection: (Boolean) -> Unit = {}): Flow<GameView>
 }

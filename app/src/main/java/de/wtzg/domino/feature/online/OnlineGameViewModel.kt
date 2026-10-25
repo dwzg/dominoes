@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class OnlineGameState(
@@ -40,6 +42,8 @@ data class OnlineGameState(
     val viewAt: Long = 0,
     /** A game to switch to, e.g. the rematch. Cleared once opened. */
     val moveTo: String? = null,
+    /** The live connection dropped a moment ago and hasn't come back yet. */
+    val reconnecting: Boolean = false,
 ) {
     /** The server can list lobbies publicly, so the host may switch it on and off. */
     val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
@@ -50,6 +54,9 @@ data class OnlineGameState(
     val turnLimits: Boolean get() = ServerFeatures.TURN_LIMITS in features
     val rematch: Boolean get() = ServerFeatures.REMATCH in features
 }
+
+/** How long the live connection may be down before the screen says so. */
+const val RECONNECT_NOTICE_DELAY_MS = 2_000L
 
 /** What the online game screen can ask for, on top of moves at the table. */
 interface OnlineGameActions : GameActions {
@@ -93,9 +100,28 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
 
     override suspend fun stayConnected() {
         try {
-            repo.api().live(id).collect(::apply)
+            repo.api().live(id, ::connection).collect(::apply)
         } catch (e: OnlineException) {
             _state.update { it.copy(error = e.message) }
+        } finally {
+            // Leaving the screen stops the connection on purpose; that's not a dropout.
+            connection(true)
+        }
+    }
+
+    private var dropout: Job? = null
+
+    /** Shows "Reconnecting…" only if the link stays down for a moment, so quick blips don't flash. */
+    private fun connection(up: Boolean) {
+        if (up) {
+            dropout?.cancel()
+            dropout = null
+            if (_state.value.reconnecting) _state.update { it.copy(reconnecting = false) }
+        } else if (dropout == null) {
+            dropout = viewModelScope.launch {
+                delay(RECONNECT_NOTICE_DELAY_MS)
+                _state.update { it.copy(reconnecting = true) }
+            }
         }
     }
 

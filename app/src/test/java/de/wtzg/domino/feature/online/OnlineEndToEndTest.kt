@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -58,7 +59,8 @@ class OnlineEndToEndTest {
 
     @After fun tearDown() {
         scope.cancel()
-        server.stop(100, 500)
+        // Some tests stop the server themselves.
+        runCatching { server.stop(100, 500) }
     }
 
     private fun phone(name: String): OnlineRepository {
@@ -147,6 +149,23 @@ class OnlineEndToEndTest {
         assertEquals(first.id, second.id)
         assertEquals(listOf("Bob", "Ann"), second.seats.map { it.name })
         assertEquals(13, second.rules.target)
+    }
+
+    @Test
+    fun liveConnectionSaysWhenItDrops() = runBlocking {
+        val ann = phone("ann-live")
+        ann.register("Ann")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        val states = kotlinx.coroutines.channels.Channel<Boolean>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val api = ann.api()
+        val watching = scope.launch { api.live(lobby.id) { states.trySend(it) }.collect {} }
+        try {
+            withTimeout(10_000) { while (!states.receive()) Unit }
+            server.stop(0, 100)
+            withTimeout(10_000) { while (states.receive()) Unit }
+        } finally {
+            watching.cancel()
+        }
     }
 
     @Test

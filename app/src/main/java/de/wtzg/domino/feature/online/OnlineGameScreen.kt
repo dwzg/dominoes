@@ -1,17 +1,25 @@
 package de.wtzg.domino.feature.online
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +44,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,7 +62,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,37 +111,49 @@ fun OnlineGameScreen(
     }
     val table = state.toTable(now)
 
-    when {
-        v == null -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator()
-                Text(state.error ?: "Connecting…")
-                TextButton(onClick = onBack) { Text("Back") }
-            }
-        }
-        v.status == GameStatus.LOBBY -> Lobby(v, state, vm, onBack, onLeave = { confirmLeave = true })
-        table != null -> GameScreen(
-            table = table,
-            actions = vm,
-            haptics = haptics,
-            onBack = onBack,
-            dimHandWhileWaiting = dimHandWhileWaiting,
-            onOverlaySecondary = onBack,
-            topActions = {
-                var menu by remember { mutableStateOf(false) }
-                // The Box anchors the menu to the button instead of the whole top row.
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Leave game") },
-                            enabled = v.status == GameStatus.PLAYING,
-                            onClick = { menu = false; confirmLeave = true },
-                        )
-                    }
+    Box(Modifier.fillMaxSize()) {
+        when {
+            v == null -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator()
+                    Text(state.error ?: "Connecting…")
+                    TextButton(onClick = onBack) { Text("Back") }
                 }
-            },
-        )
+            }
+            v.status == GameStatus.LOBBY -> Lobby(v, state, vm, onBack, onLeave = { confirmLeave = true })
+            table != null -> GameScreen(
+                table = table,
+                actions = vm,
+                haptics = haptics,
+                onBack = onBack,
+                dimHandWhileWaiting = dimHandWhileWaiting,
+                onOverlaySecondary = onBack,
+                topActions = {
+                    var menu by remember { mutableStateOf(false) }
+                    // The Box anchors the menu to the button instead of the whole top row.
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Leave game") },
+                                enabled = v.status == GameStatus.PLAYING,
+                                onClick = { menu = false; confirmLeave = true },
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        // The live link dropped: say so, so a quiet table doesn't look like a frozen app.
+        AnimatedVisibility(
+            visible = state.reconnecting && v != null,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(top = 8.dp),
+        ) { ReconnectingNotice() }
     }
 
     if (confirmLeave && v != null) {
@@ -371,5 +395,31 @@ private fun LobbySettingsDialog(v: GameView, showTurnLimit: Boolean, onDismiss: 
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** A small bar while the live connection is down. Moves still go through once it's back. */
+@Composable
+private fun ReconnectingNotice() {
+    Surface(
+        color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        shape = MaterialTheme.shapes.small,
+        shadowElevation = 4.dp,
+    ) {
+        Row(
+            Modifier
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CircularProgressIndicator(
+                Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
+            )
+            Text("Reconnecting…", style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }
 

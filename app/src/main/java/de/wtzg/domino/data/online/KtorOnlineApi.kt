@@ -160,7 +160,7 @@ class KtorOnlineApi(
         return call { response }
     }
 
-    override fun live(id: String): Flow<GameView> = flow {
+    override fun live(id: String, onConnection: (Boolean) -> Unit): Flow<GameView> = flow {
         val ws = URLBuilder().takeFrom(baseUrl.trimEnd('/') + "/games/$id/live").apply {
             protocol = if (protocol == URLProtocol.HTTPS) URLProtocol.WSS else URLProtocol.WS
             parameters.append("token", token.orEmpty())
@@ -172,7 +172,11 @@ class KtorOnlineApi(
                 client.webSocket(ws, request = { header(ProtocolVersion.HEADER, ProtocolVersion.CURRENT.toString()) }) {
                     backoff = 1_000L
                     for (frame in incoming) {
-                        if (frame is Frame.Text) emit(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
+                        if (frame is Frame.Text) {
+                            // The server sends the game straight away, so the first frame means we're live.
+                            onConnection(true)
+                            emit(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -180,6 +184,7 @@ class KtorOnlineApi(
             } catch (_: Exception) {
                 // Dropped connection: try again shortly.
             }
+            onConnection(false)
             delay(backoff)
             backoff = (backoff * 2).coerceAtMost(15_000L)
         }

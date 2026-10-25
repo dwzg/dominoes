@@ -177,6 +177,13 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                 Column(Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Game code", style = MaterialTheme.typography.labelLarge)
                     Text(v.code, fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
+                    // Friends nearby can scan this instead of typing the code.
+                    QrCode(
+                        text = link,
+                        description = "QR code to join game ${v.code}",
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                    Text("Scan with the Dominoes app or your camera", style = MaterialTheme.typography.bodySmall)
                     Text(
                         "${v.rules.mode.title} · to ${v.rules.target} · ${if (v.pace == Pace.LIVE) "live" else "turn by turn"}",
                         style = MaterialTheme.typography.bodyMedium,

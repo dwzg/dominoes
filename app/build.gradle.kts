@@ -93,6 +93,9 @@ dependencies {
     implementation(libs.ktor.serialization.json)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.lifecycle.process)
+    // QR codes: drawing invite codes, and scanning them with the Play services scanner.
+    implementation(libs.zxing.core)
+    implementation(libs.play.services.code.scanner)
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)

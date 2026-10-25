@@ -17,6 +17,8 @@ ktor = "3.0.3"
 sqlite = "3.47.1.0"
 logback = "1.5.12"
 work = "2.10.0"
+zxing = "3.5.3"
+codeScanner = "16.1.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -56,6 +58,8 @@ sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "codeScanner" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.HourglassEmpty
@@ -47,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -236,18 +238,35 @@ private fun Identity(name: String, onRename: (String) -> Unit) {
 
 @Composable
 private fun JoinWithCode(initial: String, busy: Boolean, onJoin: (String) -> Unit) {
+    val context = LocalContext.current
     var code by rememberSaveable { mutableStateOf(initial) }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = code,
-            onValueChange = { v -> code = v.uppercase().filter { it.isLetterOrDigit() }.take(Limits.CODE_LENGTH) },
-            label = { Text("Game code") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { if (code.length == Limits.CODE_LENGTH) onJoin(code) }),
-            modifier = Modifier.weight(1f),
-        )
-        OutlinedButton(onClick = { onJoin(code) }, enabled = code.length == Limits.CODE_LENGTH && !busy) { Text("Join") }
+    var scanProblem by rememberSaveable { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = code,
+                onValueChange = { v -> code = v.uppercase().filter { it.isLetterOrDigit() }.take(Limits.CODE_LENGTH) },
+                label = { Text("Game code") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { if (code.length == Limits.CODE_LENGTH) onJoin(code) }),
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = { onJoin(code) }, enabled = code.length == Limits.CODE_LENGTH && !busy) { Text("Join") }
+            IconButton(
+                onClick = {
+                    scanProblem = null
+                    scanInviteQr(
+                        context,
+                        onCode = { scanned -> code = scanned; onJoin(scanned) },
+                        onNotAnInvite = { scanProblem = "That QR code isn't a dominoes invite." },
+                        onUnavailable = { scanProblem = "The QR scanner isn't available on this phone. Type the code instead." },
+                    )
+                },
+                enabled = !busy,
+            ) { Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan QR code") }
+        }
+        scanProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }
 

@@ -120,6 +120,7 @@ The rules for changing the protocol are at the top of
 - **Games:** the host creates a game and shares the 6-letter code, the invite link (`https://<server>/join/CODE`, which opens the app) or the QR code in the lobby. Free seats get computer players when the host starts.
 - **Public or private:** a game is invite only unless the host makes it open to anyone. Open games are listed for everyone on the server while they're in the lobby with a free seat; lobbies untouched for 24 hours drop off the list. Each player can list up to 3 open games at a time.
 - **Time per turn:** the host can set a limit (live: 30 seconds to 5 minutes; turn by turn: 1 to 7 days). If the player to move runs out of time, the game ends there with the scores as they stand and nobody wins. The server checks every few seconds.
+- **Leaving:** leaving the lobby frees your seat (the host leaving cancels the game). Leaving during play ends the game for everyone in the same way, and nobody wins.
 - **Rematch:** after a game ends, anyone at the table can ask for a rematch. The first to ask hosts a new lobby with the same settings, and everyone after joins it.
 - **Live games** stream updates over a WebSocket while the game is open.
 - **Turn-by-turn games:** while the app is closed, it checks every 15 minutes and notifies you when it's your turn.

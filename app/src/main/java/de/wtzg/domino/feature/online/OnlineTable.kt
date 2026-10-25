@@ -102,15 +102,17 @@ fun OnlineGameState.toTable(now: Long = System.currentTimeMillis()): TableUi? {
 private fun matchOver(v: GameView, rematch: Boolean): OverlayUi {
     val w = v.winner
     val out = v.timedOut
+    val left = v.leftSeat
     return OverlayUi(
         title = when {
             out == v.yourSeat -> "You ran out of time."
             out != null -> "${v.seats[out].name} ran out of time."
+            left != null -> "${v.seats[left].name} left the game."
             w == null -> "The match is over."
             w == v.yourSeat -> "You win the match!"
             else -> "${v.seats[w].name} wins the match."
         },
-        lines = if (out != null) listOf("The game ended there, so nobody wins. These were the scores.") else emptyList(),
+        lines = if (out != null || left != null) listOf("The game ended there, so nobody wins. These were the scores.") else emptyList(),
         scores = v.seats.indices.map { ResultLine(v.nameOf(it), null, v.seats[it].score, it == v.yourSeat) },
         // Only people still at the table can play again.
         primary = when {

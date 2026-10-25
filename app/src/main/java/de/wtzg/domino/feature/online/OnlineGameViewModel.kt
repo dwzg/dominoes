@@ -205,7 +205,22 @@ class OnlineGameViewModel(private val id: String, private val repo: OnlineReposi
         }
     }
 
-    override fun leave() = send(Action.Leave)
+    /** Leaving takes you back to your games, whether you left a lobby or ended a game. */
+    override fun leave() {
+        val v = _state.value.view ?: return
+        if (_state.value.busy) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true) }
+            try {
+                repo.api().act(id, Action.Leave, v.version)
+                _state.update { it.copy(gone = true) }
+            } catch (e: OnlineException) {
+                _state.update { it.copy(error = e.message) }
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+        }
+    }
 
     override fun dismissError() = _state.update { it.copy(error = null) }
 

@@ -167,7 +167,7 @@ fun OnlineGameScreen(
                     when {
                         lobby && host -> "Everyone who joined will be sent back."
                         lobby -> "Your seat opens up for someone else."
-                        else -> "A computer player takes over your seat and the others play on."
+                        else -> "The game ends for everyone, and nobody wins."
                     },
                 )
             },

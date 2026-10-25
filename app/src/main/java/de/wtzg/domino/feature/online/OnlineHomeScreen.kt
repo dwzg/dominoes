@@ -328,6 +328,7 @@ private fun GameRow(g: GameSummary, onClick: () -> Unit) {
         g.isYourTurn -> "Your turn" to true
         g.status == GameStatus.PLAYING -> "${g.seats.getOrNull(g.turn) ?: "Someone"}'s turn" to false
         g.timedOut != null -> (if (g.timedOut == g.yourSeat) "You ran out of time" else "${g.seats.getOrNull(g.timedOut!!) ?: "Someone"} ran out of time") to false
+        g.leftSeat != null -> "${g.seats.getOrNull(g.leftSeat!!) ?: "Someone"} left" to false
         else -> (g.winner?.let { if (it == g.yourSeat) "You won" else "${g.seats[it]} won" } ?: "Finished") to false
     }
     Card(

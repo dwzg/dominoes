@@ -37,6 +37,8 @@ data class GameRecord(
     val turnLimitSeconds: Int = 0,
     /** The seat that ran out of time, which ended the game. */
     val timedOut: Int? = null,
+    /** The seat whose player left during play, which ended the game. */
+    val leftSeat: Int? = null,
     /** The lobby set up as a rematch of this game, once someone asked for one. */
     val rematchId: String? = null,
 ) {

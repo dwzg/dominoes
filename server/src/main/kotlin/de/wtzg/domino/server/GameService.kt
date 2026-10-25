@@ -302,11 +302,16 @@ class GameService(
             } else {
                 save(g.copy(seats = g.seats.toMutableList().also { it[seat] = SeatRecord() }))
             }
-        GameStatus.PLAYING -> {
-            val s = g.seats[seat]
-            val ai = SeatRecord(null, "${s.name} (AI)", Difficulty.NORMAL)
-            save(runComputers(g.copy(seats = g.seats.toMutableList().also { it[seat] = ai })))
-        }
+        GameStatus.PLAYING ->
+            // The game ends for everyone, nobody winning. The leaver's name stays at the table,
+            // but the game drops off their list.
+            save(
+                g.copy(
+                    status = GameStatus.FINISHED,
+                    leftSeat = seat,
+                    seats = g.seats.toMutableList().also { it[seat] = it[seat].copy(playerId = null) },
+                ),
+            )
         GameStatus.FINISHED -> {
             // Take it off your list; the record stays for the others.
             save(g.copy(seats = g.seats.toMutableList().also { it[seat] = it[seat].copy(playerId = null) }))
@@ -378,6 +383,7 @@ class GameService(
             version = g.version,
             updatedAt = g.updatedAt,
             timedOut = g.timedOut,
+            leftSeat = g.leftSeat,
         )
     }.sortedWith(compareByDescending<GameSummary> { it.isYourTurn }.thenByDescending { it.updatedAt })
 
@@ -421,6 +427,7 @@ class GameService(
             turnLimitSeconds = g.turnLimitSeconds,
             turnEndsInMs = g.turnDeadline?.let { (it - clock()).coerceAtLeast(0) },
             timedOut = g.timedOut,
+            leftSeat = g.leftSeat,
             rematchId = g.rematchId,
         )
     }

@@ -87,7 +87,10 @@ sealed interface Action {
     @Serializable @SerialName("pass")
     data object Pass : Action
 
-    /** Leave the game. In the lobby your seat is freed; during play a computer takes over. */
+    /**
+     * Leave the game. In the lobby your seat is freed. During play the game ends for everyone
+     * with nobody winning (servers before that let a computer take over the seat).
+     */
     @Serializable @SerialName("leave")
     data object Leave : Action
 }
@@ -176,6 +179,8 @@ data class GameView(
     val turnEndsInMs: Long? = null,
     /** The seat that ran out of time. The game ended there, with nobody winning. */
     val timedOut: Int? = null,
+    /** The seat whose player left during play. The game ended there, with nobody winning. */
+    val leftSeat: Int? = null,
     /** A rematch someone has set up after this game; POST /games/{id}/rematch joins it. */
     val rematchId: String? = null,
 ) {
@@ -216,6 +221,8 @@ data class GameSummary(
     val updatedAt: Long,
     /** The seat that ran out of time, if that's how the game ended. */
     val timedOut: Int? = null,
+    /** The seat whose player left during play, if that's how the game ended. */
+    val leftSeat: Int? = null,
 ) {
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }

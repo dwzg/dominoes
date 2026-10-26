@@ -47,6 +47,16 @@ class BoardTest {
     }
 
     @Test
+    fun doubleAtTheEndOfNorthCountsBothHalves() {
+        var b = Board(spinnerAllowed = true).play(Move(t(6, 6), Arm.EAST))
+        b = b.play(Move(t(6, 2), Arm.EAST)).play(Move(t(6, 3), Arm.WEST))
+        b = b.play(Move(t(6, 4), Arm.NORTH)).play(Move(t(4, 4), Arm.NORTH))
+        assertEquals(2 + 3 + 8, b.endCount())
+        b = b.play(Move(t(6, 1), Arm.SOUTH))
+        assertEquals(2 + 3 + 8 + 1, b.endCount())
+    }
+
+    @Test
     fun noSpinnerInDraw() {
         var b = Board().play(Move(t(6, 6), Arm.EAST))
         b = b.play(Move(t(6, 1), Arm.EAST)).play(Move(t(6, 2), Arm.WEST))

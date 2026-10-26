@@ -73,7 +73,7 @@ data class Board(
         for (arm in listOf(Arm.EAST, Arm.WEST)) {
             val last = arm(arm).lastOrNull()
             total += when {
-                last != null -> if (last.tile.isDouble) last.outer * 2 else last.outer
+                last != null -> last.endPips()
                 s.isDouble -> s.pips // an untouched side of the opening double: the whole double is an end
                 else -> endValue(arm)
             }
@@ -81,11 +81,14 @@ data class Board(
         if (northSouthOpen) {
             for (arm in listOf(Arm.NORTH, Arm.SOUTH)) {
                 val last = arm(arm).lastOrNull() ?: continue
-                total += if (last.tile.isDouble) last.outer * 2 else last.outer
+                total += last.endPips()
             }
         }
         return total
     }
+
+    /** A double at an end counts both halves. */
+    private fun Link.endPips(): Int = if (tile.isDouble) outer * 2 else outer
 
     fun canPlay(tile: Tile, arm: Arm): Boolean =
         isEmpty || (arm in openArms && tile.has(endValue(arm)))

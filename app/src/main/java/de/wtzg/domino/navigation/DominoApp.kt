@@ -42,6 +42,8 @@ import de.wtzg.domino.data.local.LocalInvite
 import de.wtzg.domino.data.local.isLocalNetworkAddress
 import de.wtzg.domino.feature.local.LocalScreen
 import de.wtzg.domino.feature.local.LocalViewModel
+import de.wtzg.domino.feature.online.FriendsScreen
+import de.wtzg.domino.feature.online.FriendsViewModel
 import de.wtzg.domino.feature.online.OnlineCreateScreen
 import de.wtzg.domino.feature.online.OnlineGameScreen
 import de.wtzg.domino.feature.online.OnlineGameViewModel
@@ -252,7 +254,7 @@ private fun AppNavHost(
                 onClear = { scoresVm.clearHistory() },
             )
         }
-        composable<OnlineRoute> { e ->
+        composable<OnlineRoute>(deepLinks = listOf(navDeepLink<OnlineRoute>(basePath = "dominoes://online"))) { e ->
             OnlineHome(nav, e.toRoute<OnlineRoute>().code)
         }
         composable<JoinRoute>(deepLinks = listOf(navDeepLink<JoinRoute>(basePath = "dominoes://join"))) { e ->
@@ -284,7 +286,8 @@ private fun AppNavHost(
                 onCreate = vm::create,
             )
         }
-        composable<OnlineCreateRoute> {
+        composable<OnlineCreateRoute> { e ->
+            val route = e.toRoute<OnlineCreateRoute>()
             val vm = appViewModel(owner = onlineOwner(nav)) { OnlineHomeViewModel(it.online, it.settings) }
             val s by vm.state.collectAsStateWithLifecycle()
             LaunchedEffect(s.open) {
@@ -295,10 +298,24 @@ private fun AppNavHost(
             }
             OnlineCreateScreen(
                 busy = s.busy,
-                allowPublic = s.publicGames,
+                allowPublic = s.publicGames && route.challengeId == null,
                 allowTurnLimit = de.wtzg.domino.protocol.ServerFeatures.TURN_LIMITS in s.features,
                 onBack = { nav.popBackStack() },
-                onCreate = vm::create,
+                onCreate = { req -> vm.create(req, listOfNotNull(route.challengeId)) },
+                challenge = route.challengeName,
+            )
+        }
+        composable<FriendsRoute>(deepLinks = listOf(navDeepLink<FriendsRoute>(basePath = "dominoes://friends"))) { e ->
+            val route = e.toRoute<FriendsRoute>()
+            val vm = appViewModel { FriendsViewModel(it.online) }
+            val s by vm.state.collectAsStateWithLifecycle()
+            FriendsScreen(
+                state = s,
+                vm = vm,
+                initialCode = route.code,
+                onBack = { if (!nav.popBackStack()) nav.navigate(PlayRoute) },
+                onChallenge = { f -> nav.navigate(OnlineCreateRoute(f.playerId, f.name)) },
+                onSetUp = { nav.navigate(OnlineRoute()) },
             )
         }
         composable<OnlineGameRoute>(deepLinks = listOf(navDeepLink<OnlineGameRoute>(basePath = "dominoes://game"))) { e ->
@@ -356,7 +373,8 @@ private fun OnlineHome(nav: NavHostController, code: String?) {
         vm = vm,
         initialCode = code,
         onBack = { if (!nav.popBackStack()) nav.navigate(PlayRoute) },
-        onCreate = { nav.navigate(OnlineCreateRoute) },
+        onCreate = { nav.navigate(OnlineCreateRoute()) },
         onOpenGame = { nav.navigate(OnlineGameRoute(it)) },
+        onFriends = { nav.navigate(FriendsRoute()) },
     )
 }

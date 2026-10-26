@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +57,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.protocol.GameInvite
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.Limits
@@ -71,6 +75,7 @@ fun OnlineHomeScreen(
     onBack: () -> Unit,
     onCreate: () -> Unit,
     onOpenGame: (String) -> Unit,
+    onFriends: () -> Unit = {},
 ) {
     LaunchedEffect(state.open) { state.open?.let { onOpenGame(it); vm.opened() } }
     val reg = state.account?.registration
@@ -131,10 +136,27 @@ fun OnlineHomeScreen(
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = onCreate, modifier = Modifier.weight(1f)) { Text("Create a game") }
+                            if (state.friendsAvailable) {
+                                val requests = state.friends?.requests?.size ?: 0
+                                OutlinedButton(onClick = onFriends, modifier = Modifier.weight(1f)) {
+                                    BadgedBox(badge = { if (requests > 0) Badge { Text("$requests") } }) {
+                                        Icon(Icons.Outlined.People, contentDescription = null)
+                                    }
+                                    Text(if (requests > 0) "   Friends" else "  Friends")
+                                }
+                            }
+                        }
+                    }
+                    if (state.invites.isNotEmpty()) {
+                        item { SectionHeader("Invites") }
+                        items(state.invites, key = { "invite-${it.gameId}" }) { i ->
+                            InviteRow(i, state.busy, onJoin = { vm.join(i.code) }, onDecline = { vm.declineInvite(i.gameId) })
                         }
                     }
                     item { JoinWithCode(initialCode.orEmpty(), state.busy, vm::join) }
-                    item { NotificationsPermission(state.games.any { it.pace == Pace.TURN_BASED }) }
+                    // Turn-based games and friends' invites both arrive as notifications.
+                    val hasFriends = state.friends?.let { it.friends.isNotEmpty() || it.requests.isNotEmpty() } == true
+                    item { NotificationsPermission(state.games.any { it.pace == Pace.TURN_BASED } || hasFriends) }
                     if (state.publicGames) {
                         item { SectionHeader("Open games") }
                         if (state.openGames.isEmpty()) {
@@ -284,12 +306,35 @@ private fun JoinWithCode(initial: String, busy: Boolean, onJoin: (String) -> Uni
     }
 }
 
-/** Turn-based games need notifications; ask once there is one (Android 13+). */
+/** Turn-based games and invites need notifications; ask once they matter (Android 13+). */
 @Composable
 private fun NotificationsPermission(needed: Boolean) {
     if (!needed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+}
+
+/** A friend asked you to their table. */
+@Composable
+private fun InviteRow(i: GameInvite, busy: Boolean, onJoin: () -> Unit, onDecline: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp)) {
+            Text("${i.from} invites you", style = MaterialTheme.typography.titleMedium)
+            val free = i.seats - i.taken
+            Text(
+                "${i.mode.title} · to ${i.target} · ${if (i.pace == Pace.LIVE) "live" else "turn by turn"} · " +
+                    "$free of ${i.seats} seats free",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDecline, enabled = !busy) { Text("Decline") }
+                Button(onClick = onJoin, enabled = !busy) { Text("Join") }
+            }
+        }
+    }
 }
 
 /** A public lobby: who's hosting, what they're playing, and how many seats are left. */

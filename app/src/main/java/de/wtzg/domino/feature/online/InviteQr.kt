@@ -39,6 +39,23 @@ fun inviteCodeFrom(scanned: String): String? {
     return code?.uppercase()?.takeIf { it.length == Limits.CODE_LENGTH }
 }
 
+/** A friend link: `https://server/friend/CODE` or `dominoes://friends?code=CODE`. */
+private val FRIEND_LINK = Regex("""(?:friend/|[?&]code=)([A-Za-z0-9-]+)""")
+
+/**
+ * The friend code in something scanned or typed: a friend link, or the code itself, with or
+ * without the dash. Null when it isn't one.
+ */
+fun friendCodeFrom(text: String): String? {
+    val t = text.trim()
+    val raw = FRIEND_LINK.find(t)?.groupValues?.get(1) ?: t
+    val code = raw.uppercase().filter { it.isLetterOrDigit() }
+    return code.takeIf { it.length == Limits.FRIEND_CODE_LENGTH && raw.all { c -> c.isLetterOrDigit() || c == '-' || c == ' ' } }
+}
+
+/** A friend code as people read it: ABCD-EFGH. */
+fun formatFriendCode(code: String): String = code.chunked(4).joinToString("-")
+
 /** The dark and light squares of a QR code for [text], row by row, without the quiet zone. */
 fun qrModules(text: String): List<BooleanArray> {
     val matrix = Encoder.encode(text, ErrorCorrectionLevel.M, mapOf(EncodeHintType.CHARACTER_SET to "UTF-8")).matrix

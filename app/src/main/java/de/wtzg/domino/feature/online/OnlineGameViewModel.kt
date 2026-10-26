@@ -9,6 +9,7 @@ import de.wtzg.domino.engine.Move
 import de.wtzg.domino.engine.Tile
 import de.wtzg.domino.feature.play.GameActions
 import de.wtzg.domino.protocol.Action
+import de.wtzg.domino.protocol.Friend
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.PublicEvent
@@ -46,7 +47,12 @@ data class OnlineGameState(
     val reconnecting: Boolean = false,
     /** Hosted on a phone on the same Wi-Fi rather than the online server. */
     val local: Boolean = false,
+    /** Your friends, once loaded for inviting them to the lobby. */
+    val friends: List<Friend>? = null,
 ) {
+    /** The server has friends, so you can invite them to the lobby from the app. */
+    val friendsAvailable: Boolean get() = !local && ServerFeatures.FRIENDS in features
+
     /** The server can list lobbies publicly, so the host may switch it on and off. */
     val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
 
@@ -71,6 +77,12 @@ interface OnlineGameActions : GameActions {
 
     /** Host only, in the lobby: change the game, the table size, the target or the pace. */
     fun updateSettings(settings: SettingsRequest)
+
+    /** Loads your friends, to pick whom to invite. */
+    fun loadFriends() = Unit
+
+    /** Invites friends to this lobby through the app. */
+    fun inviteFriends(playerIds: List<String>) = Unit
 
     /** The screen has switched to [OnlineGameState.moveTo]. */
     fun moved()
@@ -195,6 +207,21 @@ class OnlineGameViewModel(
     override fun setVisibility(visibility: Visibility) = lobbyChange { repo.api().setVisibility(id, visibility) }
 
     override fun updateSettings(settings: SettingsRequest) = lobbyChange { repo.api().updateSettings(id, settings) }
+
+    override fun loadFriends() {
+        viewModelScope.launch {
+            try {
+                val f = repo.api().friends().friends
+                _state.update { it.copy(friends = f) }
+            } catch (e: OnlineException) {
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    override fun inviteFriends(playerIds: List<String>) {
+        if (playerIds.isNotEmpty()) lobbyChange { repo.api().invite(id, playerIds) }
+    }
 
     /** A host's change in the lobby: one at a time, showing the server's answer or its error. */
     private fun lobbyChange(request: suspend () -> GameView) {

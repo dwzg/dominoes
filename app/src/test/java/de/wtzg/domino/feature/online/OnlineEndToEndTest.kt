@@ -233,4 +233,38 @@ class OnlineEndToEndTest {
         assertTrue(e is OnlineException)
         assertTrue(e!!.message!!.startsWith("Can't reach the server"))
     }
+
+    @Test
+    fun friendsChallengeEachOtherThroughTheApp() = runBlocking {
+        val ann = phone("ann-friends")
+        val bob = phone("bob-friends")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.FRIENDS in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+
+        // Bob adds Ann with her code as she'd share it; Ann accepts.
+        val code = formatFriendCode(ann.api().friends().friendCode)
+        bob.api().addFriend(friendCodeFrom(code)!!)
+        val request = ann.api().friends().requests.single()
+        assertEquals("Bob", request.name)
+        assertEquals(listOf("Bob"), ann.api().acceptFriend(request.playerId).friends.map { it.name })
+
+        // Ann challenges Bob: a lobby with an invite in it.
+        val bobId = ann.api().friends().friends.single().playerId
+        val lobby = ann.api().create(CreateGameRequest(GameMode.ALL_THREES, players = 2, target = 90, pace = Pace.TURN_BASED))
+        assertEquals(listOf("Bob"), ann.api().invite(lobby.id, listOf(bobId)).invited.map { it.name })
+
+        val invite = bob.api().friends().invites.single()
+        assertEquals("Ann", invite.from)
+        assertEquals(GameMode.ALL_THREES, invite.mode)
+        assertEquals(lobby.id, bob.api().join(invite.code).id)
+        assertTrue(bob.api().friends().invites.isEmpty())
+        assertTrue(ann.api().game(lobby.id).invited.isEmpty())
+
+        // A second invite, declined this time.
+        val next = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        ann.api().invite(next.id, listOf(bobId))
+        assertTrue(bob.api().declineInvite(next.id).invites.isEmpty())
+        assertTrue(ann.api().game(next.id).invited.isEmpty())
+    }
 }

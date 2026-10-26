@@ -58,6 +58,8 @@ fun OnlineCreateScreen(
     allowTurnLimit: Boolean,
     onBack: () -> Unit,
     onCreate: (CreateGameRequest) -> Unit,
+    /** A challenge: the friend's name, who's invited as soon as the game is created. */
+    challenge: String? = null,
 ) {
     var mode by rememberSaveable { mutableStateOf(GameMode.ALL_FIVES) }
     var players by rememberSaveable { mutableIntStateOf(2) }
@@ -69,7 +71,7 @@ fun OnlineCreateScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New online game") },
+                title = { Text(if (challenge != null) "Challenge $challenge" else "New online game") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -127,7 +129,15 @@ fun OnlineCreateScreen(
                     .fillMaxWidth()
                     .padding(top = 8.dp)
                     .height(52.dp),
-            ) { Text(if (allowPublic && visibility == Visibility.PUBLIC) "Create open game" else "Create and invite friends") }
+            ) {
+                Text(
+                    when {
+                        challenge != null -> "Create and invite $challenge"
+                        allowPublic && visibility == Visibility.PUBLIC -> "Create open game"
+                        else -> "Create and invite friends"
+                    },
+                )
+            }
         }
     }
 }

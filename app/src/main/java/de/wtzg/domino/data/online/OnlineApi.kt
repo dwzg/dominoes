@@ -3,6 +3,7 @@ package de.wtzg.domino.data.online
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.protocol.Action
 import de.wtzg.domino.protocol.CreateGameRequest
+import de.wtzg.domino.protocol.FriendsView
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.OpenGame
@@ -39,6 +40,25 @@ interface OnlineApi {
 
     /** The host lists the lobby publicly or hides it again. */
     suspend fun setVisibility(id: String, visibility: Visibility): GameView
+
+    // Friends; all need a server with [de.wtzg.domino.protocol.ServerFeatures.FRIENDS].
+
+    /** Your friend code, friends, friend requests and game invites. */
+    suspend fun friends(): FriendsView
+
+    /** Asks the player with this friend code to be friends. */
+    suspend fun addFriend(code: String): FriendsView
+
+    /** Asks someone you've played with to be friends. */
+    suspend fun addFriendById(playerId: String): FriendsView
+    suspend fun acceptFriend(playerId: String): FriendsView
+
+    /** Unfriends, declines their request or takes back yours. */
+    suspend fun removeFriend(playerId: String): FriendsView
+
+    /** Invites friends to a lobby you're in. */
+    suspend fun invite(gameId: String, playerIds: List<String>): GameView
+    suspend fun declineInvite(gameId: String): FriendsView
 
     /** Returns the new view, or null if the game is gone (e.g. the host cancelled it). */
     suspend fun act(id: String, action: Action, version: Int): GameView?

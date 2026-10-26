@@ -82,6 +82,10 @@ import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.outlined.People
+import de.wtzg.domino.protocol.Friend
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -204,6 +208,13 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
     var difficulty by rememberSaveable { mutableStateOf(Difficulty.NORMAL) }
     val free = v.seats.count { it.playerId == null && !it.isAi }
     var editingSettings by rememberSaveable { mutableStateOf(false) }
+    var invitingFriends by rememberSaveable { mutableStateOf(false) }
+    if (invitingFriends) {
+        InviteFriendsDialog(v, state.friends, onLoad = vm::loadFriends, onDismiss = { invitingFriends = false }) { ids ->
+            invitingFriends = false
+            vm.inviteFriends(ids)
+        }
+    }
     if (editingSettings) {
         LobbySettingsDialog(v, showTurnLimit = state.turnLimits, onDismiss = { editingSettings = false }) { req ->
             editingSettings = false
@@ -280,7 +291,13 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                         modifier = Modifier.padding(top = 10.dp),
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
-                        Text("  Invite friends")
+                        Text(if (state.friendsAvailable) "  Share invite link" else "  Invite friends")
+                    }
+                    if (state.friendsAvailable && free > 0) {
+                        FilledTonalButton(onClick = { invitingFriends = true }, enabled = !state.busy) {
+                            Icon(Icons.Outlined.People, contentDescription = null)
+                            Text("  Invite friends in the app")
+                        }
                     }
                 }
             }
@@ -311,6 +328,13 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
                             if (i == v.hostSeat) Text("Host", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                }
+                if (v.invited.isNotEmpty()) {
+                    Text(
+                        "Invited: " + v.invited.joinToString(", ") { it.name } + ". They'll see it under Invites.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -380,6 +404,59 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
             }
         }
     }
+}
+
+/** Pick friends to invite; those at the table or already invited aren't offered again. */
+@Composable
+private fun InviteFriendsDialog(
+    v: GameView,
+    friends: List<Friend>?,
+    onLoad: () -> Unit,
+    onDismiss: () -> Unit,
+    onInvite: (List<String>) -> Unit,
+) {
+    LaunchedEffect(Unit) { onLoad() }
+    val free = v.seats.count { it.playerId == null && !it.isAi }
+    val skip = v.seats.mapNotNull { it.playerId }.toSet() + v.invited.map { it.playerId }
+    val offered = friends?.filter { it.playerId !in skip }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Invite friends") },
+        text = {
+            when {
+                offered == null -> CircularProgressIndicator()
+                friends.isEmpty() -> Text("No friends yet. Add them under Friends on the Play with friends screen.")
+                offered.isEmpty() -> Text("All your friends are at the table or invited already.")
+                else -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (free == 1) "1 seat is free." else "$free seats are free.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    offered.forEach { f ->
+                        val on = f.playerId in picked
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .toggleable(value = on, role = Role.Checkbox) { picked = if (it) picked + f.playerId else picked - f.playerId }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = on, onCheckedChange = null)
+                            Text(f.name, modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onInvite(picked.toList()) }, enabled = picked.isNotEmpty()) {
+                Text(if (picked.size > 1) "Invite ${picked.size}" else "Invite")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The host changes the game before it starts; starts from the current settings. */

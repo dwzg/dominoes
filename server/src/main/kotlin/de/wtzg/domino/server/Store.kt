@@ -21,7 +21,31 @@ interface Store {
 
     /** Games where the player to move ran out of time by [now]. */
     fun overdueGames(now: Long): List<String>
+
+    /** Also drops the invites to it. */
     fun deleteGame(id: String)
+
+    // Friends. A friendship is kept in both directions; a request only from the asker.
+    fun friendCode(playerId: String): String?
+    fun setFriendCode(playerId: String, code: String)
+    fun playerByFriendCode(code: String): PlayerRecord?
+    fun friendsOf(playerId: String): List<String>
+    fun addFriendship(a: String, b: String, since: Long)
+    fun removeFriendship(a: String, b: String)
+
+    /** Who asked [playerId] to be friends, oldest first. */
+    fun requestsTo(playerId: String): List<String>
+
+    /** Who [playerId] asked, oldest first. */
+    fun requestsFrom(playerId: String): List<String>
+    fun addRequest(fromId: String, toId: String, at: Long)
+    fun removeRequest(fromId: String, toId: String)
+
+    /** Game invites for [playerId], newest first. */
+    fun invitesTo(playerId: String): List<InviteRecord>
+    fun invitesFor(gameId: String): List<InviteRecord>
+    fun addInvite(invite: InviteRecord)
+    fun removeInvite(gameId: String, toId: String)
 }
 
 class InMemoryStore : Store {
@@ -38,7 +62,42 @@ class InMemoryStore : Store {
     override fun gamesOf(playerId: String) = games.values.filter { playerId in it.playerIds }
     override fun openGames(limit: Int) = games.values.filter { it.isOpen }.sortedByDescending { it.updatedAt }.take(limit)
     override fun overdueGames(now: Long) = games.values.filter { g -> g.turnDeadline?.let { it <= now } == true }.map { it.id }
-    override fun deleteGame(id: String) { games.remove(id) }
+    override fun deleteGame(id: String) {
+        games.remove(id)
+        invites.removeIf { it.gameId == id }
+    }
+
+    private val codes = ConcurrentHashMap<String, String>()
+    private val friends = ConcurrentHashMap<Pair<String, String>, Long>()
+    private val requests = java.util.concurrent.CopyOnWriteArrayList<Triple<String, String, Long>>()
+    private val invites = java.util.concurrent.CopyOnWriteArrayList<InviteRecord>()
+
+    override fun friendCode(playerId: String) = codes[playerId]
+    override fun setFriendCode(playerId: String, code: String) { codes[playerId] = code }
+    override fun playerByFriendCode(code: String) = codes.entries.firstOrNull { it.value == code }?.key?.let(players::get)
+    override fun friendsOf(playerId: String) =
+        friends.entries.filter { it.key.first == playerId }.sortedBy { it.value }.map { it.key.second }
+    override fun addFriendship(a: String, b: String, since: Long) {
+        friends.putIfAbsent(a to b, since)
+        friends.putIfAbsent(b to a, since)
+    }
+    override fun removeFriendship(a: String, b: String) {
+        friends.remove(a to b)
+        friends.remove(b to a)
+    }
+    override fun requestsTo(playerId: String) = requests.filter { it.second == playerId }.sortedBy { it.third }.map { it.first }
+    override fun requestsFrom(playerId: String) = requests.filter { it.first == playerId }.sortedBy { it.third }.map { it.second }
+    override fun addRequest(fromId: String, toId: String, at: Long) {
+        if (requests.none { it.first == fromId && it.second == toId }) requests += Triple(fromId, toId, at)
+    }
+    override fun removeRequest(fromId: String, toId: String) { requests.removeIf { it.first == fromId && it.second == toId } }
+    override fun invitesTo(playerId: String) = invites.filter { it.toId == playerId }.sortedByDescending { it.sentAt }
+    override fun invitesFor(gameId: String) = invites.filter { it.gameId == gameId }.sortedBy { it.sentAt }
+    override fun addInvite(invite: InviteRecord) {
+        invites.removeIf { it.gameId == invite.gameId && it.toId == invite.toId }
+        invites += invite
+    }
+    override fun removeInvite(gameId: String, toId: String) { invites.removeIf { it.gameId == gameId && it.toId == toId } }
 }
 
 /**
@@ -95,6 +154,18 @@ class SqliteStore(path: String) : Store {
             listOf(
                 "CREATE TABLE IF NOT EXISTS turn_deadlines (game_id TEXT PRIMARY KEY, deadline INTEGER NOT NULL)",
                 "CREATE INDEX IF NOT EXISTS turn_deadlines_deadline ON turn_deadlines(deadline)",
+            ),
+            // 4: friends and game invites. Nobody had any before, so there's nothing to fill in.
+            listOf(
+                "CREATE TABLE IF NOT EXISTS friend_codes (player_id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE)",
+                "CREATE TABLE IF NOT EXISTS friends (player_id TEXT NOT NULL, friend_id TEXT NOT NULL, " +
+                    "since INTEGER NOT NULL, PRIMARY KEY (player_id, friend_id))",
+                "CREATE TABLE IF NOT EXISTS friend_requests (from_id TEXT NOT NULL, to_id TEXT NOT NULL, " +
+                    "sent_at INTEGER NOT NULL, PRIMARY KEY (from_id, to_id))",
+                "CREATE INDEX IF NOT EXISTS friend_requests_to ON friend_requests(to_id)",
+                "CREATE TABLE IF NOT EXISTS game_invites (game_id TEXT NOT NULL, to_id TEXT NOT NULL, " +
+                    "from_id TEXT NOT NULL, sent_at INTEGER NOT NULL, PRIMARY KEY (game_id, to_id))",
+                "CREATE INDEX IF NOT EXISTS game_invites_to ON game_invites(to_id)",
             ),
         )
     }
@@ -215,10 +286,83 @@ class SqliteStore(path: String) : Store {
     }
 
     override fun deleteGame(id: String) = locked {
+        prepareStatement("DELETE FROM game_invites WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM turn_deadlines WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM open_games WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM game_players WHERE game_id = ?").use { it.setString(1, id); it.executeUpdate() }
         prepareStatement("DELETE FROM games WHERE id = ?").use { it.setString(1, id); it.executeUpdate() }
         Unit
     }
+
+    // --- Friends ---------------------------------------------------------------------------------
+
+    private fun update(sql: String, vararg args: Any) = locked {
+        prepareStatement(sql).use { st ->
+            args.forEachIndexed { i, a -> if (a is Long) st.setLong(i + 1, a) else st.setString(i + 1, a as String) }
+            st.executeUpdate()
+        }
+        Unit
+    }
+
+    private fun strings(sql: String, vararg args: String): List<String> = locked {
+        prepareStatement(sql).use { st ->
+            args.forEachIndexed { i, a -> st.setString(i + 1, a) }
+            st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+        }
+    }
+
+    override fun friendCode(playerId: String) = strings("SELECT code FROM friend_codes WHERE player_id = ?", playerId).firstOrNull()
+
+    override fun setFriendCode(playerId: String, code: String) =
+        update("INSERT OR REPLACE INTO friend_codes (player_id, code) VALUES (?, ?)", playerId, code)
+
+    override fun playerByFriendCode(code: String) =
+        strings("SELECT player_id FROM friend_codes WHERE code = ?", code).firstOrNull()?.let(::player)
+
+    override fun friendsOf(playerId: String) =
+        strings("SELECT friend_id FROM friends WHERE player_id = ? ORDER BY since", playerId)
+
+    override fun addFriendship(a: String, b: String, since: Long) {
+        update("INSERT OR IGNORE INTO friends (player_id, friend_id, since) VALUES (?, ?, ?)", a, b, since)
+        update("INSERT OR IGNORE INTO friends (player_id, friend_id, since) VALUES (?, ?, ?)", b, a, since)
+    }
+
+    override fun removeFriendship(a: String, b: String) {
+        update("DELETE FROM friends WHERE player_id = ? AND friend_id = ?", a, b)
+        update("DELETE FROM friends WHERE player_id = ? AND friend_id = ?", b, a)
+    }
+
+    override fun requestsTo(playerId: String) =
+        strings("SELECT from_id FROM friend_requests WHERE to_id = ? ORDER BY sent_at", playerId)
+
+    override fun requestsFrom(playerId: String) =
+        strings("SELECT to_id FROM friend_requests WHERE from_id = ? ORDER BY sent_at", playerId)
+
+    override fun addRequest(fromId: String, toId: String, at: Long) =
+        update("INSERT OR IGNORE INTO friend_requests (from_id, to_id, sent_at) VALUES (?, ?, ?)", fromId, toId, at)
+
+    override fun removeRequest(fromId: String, toId: String) =
+        update("DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?", fromId, toId)
+
+    private fun invites(sql: String, arg: String): List<InviteRecord> = locked {
+        prepareStatement(sql).use { st ->
+            st.setString(1, arg)
+            st.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) add(InviteRecord(rs.getString("game_id"), rs.getString("to_id"), rs.getString("from_id"), rs.getLong("sent_at")))
+                }
+            }
+        }
+    }
+
+    override fun invitesTo(playerId: String) = invites("SELECT * FROM game_invites WHERE to_id = ? ORDER BY sent_at DESC", playerId)
+    override fun invitesFor(gameId: String) = invites("SELECT * FROM game_invites WHERE game_id = ? ORDER BY sent_at", gameId)
+
+    override fun addInvite(invite: InviteRecord) = update(
+        "INSERT OR REPLACE INTO game_invites (game_id, to_id, from_id, sent_at) VALUES (?, ?, ?, ?)",
+        invite.gameId, invite.toId, invite.fromId, invite.sentAt,
+    )
+
+    override fun removeInvite(gameId: String, toId: String) =
+        update("DELETE FROM game_invites WHERE game_id = ? AND to_id = ?", gameId, toId)
 }

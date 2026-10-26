@@ -1,6 +1,8 @@
 package de.wtzg.domino.server
 
 import de.wtzg.domino.protocol.ActionRequest
+import de.wtzg.domino.protocol.AddFriendRequest
+import de.wtzg.domino.protocol.InviteRequest
 import de.wtzg.domino.protocol.ApiError
 import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.JoinRequest
@@ -75,6 +77,7 @@ val SERVER_FEATURES = listOf(
     ServerFeatures.LOBBY_SETTINGS,
     ServerFeatures.TURN_LIMITS,
     ServerFeatures.REMATCH,
+    ServerFeatures.FRIENDS,
 )
 
 /**
@@ -131,6 +134,20 @@ fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Lo
 
         get("/games") { call.respond(service.gamesOf(call.player(), call.protocol())) }
 
+        // Friends, and invites to games from them.
+        get("/friends") { call.respond(service.friends(call.player(), call.protocol())) }
+        post("/friends") {
+            val p = call.player()
+            call.respond(service.addFriend(p, call.receive<AddFriendRequest>(), call.protocol()))
+        }
+        post("/friends/{id}/accept") { call.respond(service.acceptFriend(call.player(), call.parameters["id"]!!, call.protocol())) }
+        post("/friends/{id}/remove") { call.respond(service.removeFriend(call.player(), call.parameters["id"]!!, call.protocol())) }
+        post("/invites/{gameId}/decline") {
+            val p = call.player()
+            service.declineInvite(p, call.parameters["gameId"]!!)?.let { hub.changed(it.id) }
+            call.respond(service.friends(p, call.protocol()))
+        }
+
         // Public lobbies anyone can join. Declared before /games/{id}; Ktor prefers the fixed path anyway.
         get("/games/open") { call.respond(service.openGames(call.player(), call.protocol())) }
 
@@ -173,6 +190,13 @@ fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Lo
         post("/games/{id}/visibility") {
             val p = call.player()
             val g = service.setVisibility(p, call.parameters["id"]!!, call.receive<VisibilityRequest>().visibility)
+            hub.changed(g.id)
+            call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
+        }
+
+        post("/games/{id}/invites") {
+            val p = call.player()
+            val g = service.invite(p, call.parameters["id"]!!, call.receive<InviteRequest>().playerIds)
             hub.changed(g.id)
             call.respond(service.view(g, p.id, hub.online(g.id), call.protocol()))
         }
@@ -230,8 +254,34 @@ fun Application.dominoServer(service: GameService, hub: LiveHub, turnCheckMs: Lo
             val server = "${o.scheme}://${o.serverHost}:${o.serverPort}"
             call.respondText(invitePage(code, server), ContentType.Text.Html)
         }
+
+        // Friend links open this page, which hands the friend code to the app.
+        get("/friend/{code}") {
+            val code = call.parameters["code"]!!.uppercase().filter { it.isLetterOrDigit() }.take(12)
+            val o = call.request.origin
+            val server = "${o.scheme}://${o.serverHost}:${o.serverPort}"
+            call.respondText(friendPage(code, server), ContentType.Text.Html)
+        }
     }
 }
+
+private fun friendPage(code: String, server: String) = """
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Add a friend in Dominoes</title>
+<style>
+ body{font-family:system-ui,sans-serif;background:#1E6B3A;color:#fff;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center}
+ main{background:#F8F6F0;color:#1B1C19;border-radius:24px;padding:28px;max-width:360px;margin:16px;text-align:center}
+ .code{font-size:32px;letter-spacing:4px;font-weight:700;margin:12px 0}
+ a{display:inline-block;background:#1E6B3A;color:#fff;padding:14px 22px;border-radius:999px;text-decoration:none;font-weight:600}
+</style></head>
+<body><main>
+ <h1>Play dominoes with me</h1>
+ <p>Open the Dominoes app, go to Play with friends, then Friends, and add this friend code:</p>
+ <div class="code">$code</div>
+ <p><a href="dominoes://friends?code=$code&amp;server=${java.net.URLEncoder.encode(server, "UTF-8")}">Open in the app</a></p>
+</main></body></html>
+""".trimIndent()
 
 private fun invitePage(code: String, server: String) = """
 <!doctype html>

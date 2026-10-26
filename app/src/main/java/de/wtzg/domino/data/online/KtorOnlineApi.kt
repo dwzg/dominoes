@@ -3,6 +3,9 @@ package de.wtzg.domino.data.online
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.protocol.Action
 import de.wtzg.domino.protocol.ActionRequest
+import de.wtzg.domino.protocol.AddFriendRequest
+import de.wtzg.domino.protocol.FriendsView
+import de.wtzg.domino.protocol.InviteRequest
 import de.wtzg.domino.protocol.ApiError
 import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.GameSummary
@@ -147,6 +150,23 @@ class KtorOnlineApi(
 
     override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
         call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }
+
+    override suspend fun friends(): FriendsView = call { client.get { endpoint("/friends") } }
+
+    override suspend fun addFriend(code: String): FriendsView =
+        call { client.post { endpoint("/friends"); jsonBody(AddFriendRequest(code = code)) } }
+
+    override suspend fun addFriendById(playerId: String): FriendsView =
+        call { client.post { endpoint("/friends"); jsonBody(AddFriendRequest(playerId = playerId)) } }
+
+    override suspend fun acceptFriend(playerId: String): FriendsView = call { client.post { endpoint("/friends/$playerId/accept") } }
+
+    override suspend fun removeFriend(playerId: String): FriendsView = call { client.post { endpoint("/friends/$playerId/remove") } }
+
+    override suspend fun invite(gameId: String, playerIds: List<String>): GameView =
+        call { client.post { endpoint("/games/$gameId/invites"); jsonBody(InviteRequest(playerIds)) } }
+
+    override suspend fun declineInvite(gameId: String): FriendsView = call { client.post { endpoint("/invites/$gameId/decline") } }
 
     override suspend fun act(id: String, action: Action, version: Int): GameView? {
         val response = try {

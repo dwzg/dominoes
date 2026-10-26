@@ -7,6 +7,8 @@ import de.wtzg.domino.data.online.OnlineAccount
 import de.wtzg.domino.data.online.OnlineException
 import de.wtzg.domino.data.online.OnlineRepository
 import de.wtzg.domino.protocol.CreateGameRequest
+import de.wtzg.domino.protocol.FriendsView
+import de.wtzg.domino.protocol.GameInvite
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.ServerFeatures
@@ -31,9 +33,16 @@ data class OnlineHomeState(
     val features: List<String> = emptyList(),
     /** Public lobbies you could join. */
     val openGames: List<OpenGame> = emptyList(),
+    /** Your friends page, for the invites and the request count; null on servers without friends. */
+    val friends: FriendsView? = null,
 ) {
     /** The server lists public lobbies (older servers only have invite codes). */
     val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
+
+    /** The server has friends and in-app invites. */
+    val friendsAvailable: Boolean get() = ServerFeatures.FRIENDS in features
+
+    val invites: List<GameInvite> get() = friends?.invites.orEmpty()
 }
 
 /** The oldest server protocol this app needs. Raise only when the app relies on something new. */
@@ -55,6 +64,9 @@ interface OnlineHomeActions {
     fun register(name: String)
     fun rename(name: String)
     fun join(code: String)
+
+    /** Says no to a friend's invite. Accepting is joining with its code. */
+    fun declineInvite(gameId: String) = Unit
     fun opened()
     fun dismissError()
 }
@@ -85,6 +97,22 @@ class OnlineHomeViewModel(
             _state.update { it.copy(loading = false) }
         }
         if (_state.value.publicGames) refreshOpenGames()
+        if (_state.value.friendsAvailable) refreshFriends()
+    }
+
+    /** Friends are extra too: invites and requests just stay as they were if this fails. */
+    private suspend fun refreshFriends() {
+        if (_state.value.account?.registration == null) return
+        try {
+            val f = repo.api().friends()
+            _state.update { it.copy(friends = f) }
+        } catch (_: OnlineException) {
+        }
+    }
+
+    override fun declineInvite(gameId: String) = launchSafely {
+        val f = repo.api().declineInvite(gameId)
+        _state.update { it.copy(friends = f) }
     }
 
     /** The open games are extra: if they can't be loaded, the list just stays as it was. */
@@ -110,9 +138,11 @@ class OnlineHomeViewModel(
                 compatibility = info?.let(::compatibilityProblem),
                 features = features,
                 openGames = if (ServerFeatures.PUBLIC_GAMES in features) it.openGames else emptyList(),
+                friends = if (ServerFeatures.FRIENDS in features) it.friends else null,
             )
         }
         if (_state.value.publicGames) refreshOpenGames()
+        if (_state.value.friendsAvailable) refreshFriends()
     }
 
     override fun setServer(url: String) = launchSafely { settings.update { it.copy(serverUrl = url.trim()) } }
@@ -123,12 +153,18 @@ class OnlineHomeViewModel(
 
     override fun join(code: String) = launchSafely {
         val v = repo.api().join(code)
-        _state.update { it.copy(open = v.id) }
+        _state.update { it.copy(open = v.id, friends = it.friends?.let { f -> f.copy(invites = f.invites.filter { i -> i.gameId != v.id }) }) }
     }
 
-    fun create(request: CreateGameRequest) = launchSafely {
+    /** Creates the game and, for a challenge, invites [invite] to it, then opens the lobby. */
+    fun create(request: CreateGameRequest, invite: List<String> = emptyList()) = launchSafely {
         val v = repo.api().create(request)
-        _state.update { it.copy(open = v.id) }
+        try {
+            if (invite.isNotEmpty()) repo.api().invite(v.id, invite)
+        } finally {
+            // The lobby is there either way; from it you can still invite them or share the code.
+            _state.update { it.copy(open = v.id) }
+        }
     }
 
     override fun opened() = _state.update { it.copy(open = null) }

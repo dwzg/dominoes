@@ -25,7 +25,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Invite links (dominoes://join/CODE) and "your turn" notifications (dominoes://game/ID) -->
+            <!-- Invite links (dominoes://join/CODE), friend links (dominoes://friends?code=CODE) and
+                 notifications (dominoes://game/ID, dominoes://online) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -33,6 +34,8 @@
                 <data android:scheme="dominoes" />
                 <data android:host="join" />
                 <data android:host="game" />
+                <data android:host="friends" />
+                <data android:host="online" />
             </intent-filter>
         </activity>
 

@@ -46,6 +46,7 @@ import de.wtzg.domino.protocol.Limits
 import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
+import de.wtzg.domino.ui.components.CustomTargetDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -247,29 +248,4 @@ fun GameSettingsFields(
             onTarget(t)
         }
     }
-}
-
-/** Any target from [Limits.TARGET_MIN] to [Limits.TARGET_MAX]. */
-@Composable
-private fun CustomTargetDialog(current: Int, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
-    var text by rememberSaveable { mutableStateOf(current.toString()) }
-    val value = text.toIntOrNull()?.takeIf { it in Limits.TARGET_MIN..Limits.TARGET_MAX }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Play to") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { v -> text = v.filter(Char::isDigit).take(4) },
-                label = { Text("Target score") },
-                supportingText = { Text("${Limits.TARGET_MIN} to ${Limits.TARGET_MAX}") },
-                isError = value == null,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { value?.let(onSave) }),
-            )
-        },
-        confirmButton = { TextButton(onClick = { value?.let(onSave) }, enabled = value != null) { Text("Set") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

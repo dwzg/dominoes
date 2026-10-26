@@ -44,6 +44,7 @@ import de.wtzg.domino.data.GameOptions
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.engine.Rules
+import de.wtzg.domino.ui.components.CustomTargetDialog
 import de.wtzg.domino.ui.components.ModeArt
 
 /** Rules in a few lines, shown before you start. */
@@ -79,6 +80,7 @@ fun GameSetupScreen(
     var target by rememberSaveable { mutableIntStateOf(mode.defaultTarget) }
     var coach by rememberSaveable { mutableStateOf(defaultCoach) }
     var confirm by rememberSaveable { mutableStateOf(false) }
+    var customTarget by rememberSaveable { mutableStateOf(false) }
 
     val start = { onStart(Rules(mode, opponents + 1, target), GameOptions(difficulty, coach)) }
 
@@ -144,6 +146,11 @@ fun GameSetupScreen(
                         label = { Text(if (t == mode.defaultTarget) "$t · Red Dead" else "$t") },
                     )
                 }
+                FilterChip(
+                    selected = target !in mode.targets(),
+                    onClick = { customTarget = true },
+                    label = { Text(if (target in mode.targets()) "Custom" else "Custom: $target") },
+                )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -166,6 +173,13 @@ fun GameSetupScreen(
                     .widthIn(max = 480.dp)
                     .height(52.dp),
             ) { Text("Start game") }
+        }
+    }
+
+    if (customTarget) {
+        CustomTargetDialog(target, onDismiss = { customTarget = false }) { t ->
+            customTarget = false
+            target = t
         }
     }
 

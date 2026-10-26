@@ -6,11 +6,8 @@ import de.wtzg.domino.engine.Match
 import de.wtzg.domino.engine.Rules
 import de.wtzg.domino.engine.Strategy
 import de.wtzg.domino.protocol.Action
-import de.wtzg.domino.protocol.AddFriendRequest
 import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.Friend
-import de.wtzg.domino.protocol.FriendsView
-import de.wtzg.domino.protocol.GameInvite
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
@@ -34,15 +31,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 import kotlin.random.asKotlinRandom
 
-/** An error the client caused, with the HTTP status to answer with. */
-class ApiException(val status: Int, message: String) : RuntimeException(message)
-
-private fun badRequest(msg: String): Nothing = throw ApiException(400, msg)
-private fun forbidden(msg: String): Nothing = throw ApiException(403, msg)
-private fun notFound(msg: String): Nothing = throw ApiException(404, msg)
-private fun conflict(msg: String): Nothing = throw ApiException(409, msg)
-private fun updateApp(msg: String): Nothing = throw ApiException(426, msg)
-
 /** Refuses games an app speaking [protocol] can't show (e.g. a newer game mode). */
 private fun GameRecord.requireProtocol(protocol: Int) {
     if (rules.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
@@ -54,9 +42,6 @@ private val AI_NAMES = listOf("Rosa", "Hank", "Mabel", "Otis")
 const val OPEN_GAME_MAX_AGE_MS = 24L * 60 * 60 * 1000
 private const val OPEN_GAMES_SHOWN = 50
 private const val OPEN_GAMES_SCAN = 200
-/** People you played with who are offered as friends. */
-private const val RECENT_SHOWN = 10
-private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O or 1/I mix-ups
 
 fun hashToken(token: String): String =
     MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -71,6 +56,9 @@ class GameService(
     private val random: Random = SecureRandom().asKotlinRandom(),
 ) {
     private val secure = SecureRandom()
+
+    /** Friend codes, requests and invites. */
+    val friends = FriendService(store, clock, secure)
     private val locks = ConcurrentHashMap<String, Mutex>()
 
     private suspend fun <T> withGame(id: String, block: (GameRecord) -> T): T =
@@ -118,8 +106,9 @@ class GameService(
         }
     }
 
-    fun create(host: PlayerRecord, req: CreateGameRequest): GameRecord {
+    fun create(host: PlayerRecord, req: CreateGameRequest, protocol: Int): GameRecord {
         checkTable(req.players, req.target, req.turnLimitSeconds)
+        if (req.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
         if (req.visibility == Visibility.PUBLIC) checkOpenGamesOf(host)
         val now = clock()
         val g = GameRecord(
@@ -142,7 +131,7 @@ class GameService(
      * The host changes the game before it starts. Everyone already seated keeps a seat:
      * the table can't shrink below them, and when it shrinks they move up to fill the gaps.
      */
-    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int = 1): GameRecord = withGame(id) { g ->
+    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int): GameRecord = withGame(id) { g ->
         if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change the game")
         if (g.status != GameStatus.LOBBY) conflict("The game has already started")
         checkTable(req.players, req.target, req.turnLimitSeconds)
@@ -173,7 +162,7 @@ class GameService(
      * A new lobby with the same settings after a finished game. The first player to ask sets
      * it up and hosts it; everyone after joins that same lobby.
      */
-    suspend fun rematch(player: PlayerRecord, id: String, protocol: Int = 1): GameRecord {
+    suspend fun rematch(player: PlayerRecord, id: String, protocol: Int): GameRecord {
         val (lobbyId, code) = withGame(id) { g ->
             if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
             if (g.status != GameStatus.FINISHED) conflict("The game isn't over yet")
@@ -228,7 +217,7 @@ class GameService(
      * Public lobbies [player] could join: not their own, with a free seat, in a mode their app
      * knows, and touched in the last [OPEN_GAME_MAX_AGE_MS] so abandoned lobbies drop off.
      */
-    fun openGames(player: PlayerRecord, protocol: Int = 1): List<OpenGame> {
+    fun openGames(player: PlayerRecord, protocol: Int): List<OpenGame> {
         val since = clock() - OPEN_GAME_MAX_AGE_MS
         return store.openGames(OPEN_GAMES_SCAN)
             .filter { it.updatedAt >= since && it.seatOf(player.id) < 0 && it.rules.mode.sinceProtocol <= protocol }
@@ -249,15 +238,9 @@ class GameService(
             }
     }
 
-    private fun newCode(): String {
-        repeat(20) {
-            val code = (1..Limits.CODE_LENGTH).map { CODE_ALPHABET[secure.nextInt(CODE_ALPHABET.length)] }.joinToString("")
-            if (store.gameByCode(code) == null) return code
-        }
-        error("Couldn't find a free game code")
-    }
+    private fun newCode(): String = secure.freeCode(Limits.CODE_LENGTH) { store.gameByCode(it) != null }
 
-    suspend fun join(player: PlayerRecord, code: String, protocol: Int = 1): GameRecord {
+    suspend fun join(player: PlayerRecord, code: String, protocol: Int): GameRecord {
         val g0 = store.gameByCode(code.trim().uppercase()) ?: notFound("No game with that code")
         g0.requireProtocol(protocol)
         return withGame(g0.id) { g ->
@@ -283,129 +266,6 @@ class GameService(
         save(runComputers(g.copy(seats = seats, status = GameStatus.PLAYING, match = Match.start(g.rules, random))))
     }
 
-    // --- Friends -----------------------------------------------------------------------------
-
-    private val friendLock = Any()
-
-    /** Your friend code, made the first time you ask for it. */
-    fun friendCode(player: PlayerRecord): String = synchronized(friendLock) {
-        store.friendCode(player.id) ?: newFriendCode().also { store.setFriendCode(player.id, it) }
-    }
-
-    private fun newFriendCode(): String {
-        repeat(20) {
-            val code = (1..Limits.FRIEND_CODE_LENGTH).map { CODE_ALPHABET[secure.nextInt(CODE_ALPHABET.length)] }.joinToString("")
-            if (store.playerByFriendCode(code) == null) return code
-        }
-        error("Couldn't find a free friend code")
-    }
-
-    private fun List<String>.asFriends(): List<Friend> = mapNotNull { id -> store.player(id)?.let { Friend(it.id, it.name) } }
-
-    /** Your friends page: friends, requests both ways, people you played with, and game invites. */
-    fun friends(player: PlayerRecord, protocol: Int = 1): FriendsView {
-        val me = player.id
-        val friends = store.friendsOf(me)
-        val requests = store.requestsTo(me)
-        val sent = store.requestsFrom(me)
-        val known = (friends + requests + sent + me).toSet()
-        val recent = store.gamesOf(me).sortedByDescending { it.updatedAt }
-            .flatMap { g -> g.playerIds }
-            .filter { it !in known }
-            .distinct()
-            .take(RECENT_SHOWN)
-        return FriendsView(
-            friendCode = friendCode(player),
-            friends = friends.asFriends(),
-            requests = requests.asFriends(),
-            sent = sent.asFriends(),
-            invites = invitesTo(player, protocol),
-            recent = recent.asFriends(),
-        )
-    }
-
-    /** Invites to lobbies you could still join. Ones that can't be joined any more are cleared. */
-    private fun invitesTo(player: PlayerRecord, protocol: Int): List<GameInvite> = store.invitesTo(player.id).mapNotNull { inv ->
-        val g = store.game(inv.gameId)
-        if (g == null || g.status != GameStatus.LOBBY || g.seatOf(player.id) >= 0) {
-            store.removeInvite(inv.gameId, player.id)
-            return@mapNotNull null
-        }
-        // A full table may still free up, so the invite stays, just hidden.
-        if (g.seats.none { it.isFree } || g.rules.mode.sinceProtocol > protocol) return@mapNotNull null
-        GameInvite(
-            gameId = g.id,
-            code = g.code,
-            from = store.player(inv.fromId)?.name ?: g.seats[g.hostSeat].name,
-            mode = g.rules.mode,
-            target = g.rules.target,
-            pace = g.pace,
-            seats = g.seats.size,
-            taken = g.seats.count { it.playerId != null },
-            turnLimitSeconds = g.turnLimitSeconds,
-            sentAt = inv.sentAt,
-        )
-    }
-
-    /**
-     * Asks someone to be friends, by their friend code or, if you've played together, their
-     * player id. If they already asked you, you're friends straight away.
-     */
-    fun addFriend(player: PlayerRecord, req: AddFriendRequest, protocol: Int = 1): FriendsView {
-        val code = req.code
-        val id = req.playerId
-        val other = when {
-            code != null -> store.playerByFriendCode(code.uppercase().filter { it.isLetterOrDigit() })
-                ?: notFound("No player has that friend code")
-            id != null -> store.player(id)
-                ?.takeIf { p -> store.gamesOf(player.id).any { p.id in it.playerIds } }
-                ?: notFound("You can only add people you've played with")
-            else -> badRequest("Say who to add")
-        }
-        if (other.id == player.id) badRequest("That's your own friend code")
-        synchronized(friendLock) {
-            val friends = store.friendsOf(player.id)
-            when {
-                other.id in friends -> Unit
-                player.id in store.requestsFrom(other.id) -> {
-                    checkFriendsRoom(player.id, other.id)
-                    store.removeRequest(other.id, player.id)
-                    store.addFriendship(player.id, other.id, clock())
-                }
-                else -> {
-                    if (friends.size >= Limits.FRIENDS_MAX) conflict("You have ${Limits.FRIENDS_MAX} friends already")
-                    store.addRequest(player.id, other.id, clock())
-                }
-            }
-        }
-        return friends(player, protocol)
-    }
-
-    private fun checkFriendsRoom(a: String, b: String) {
-        if (store.friendsOf(a).size >= Limits.FRIENDS_MAX) conflict("You have ${Limits.FRIENDS_MAX} friends already")
-        if (store.friendsOf(b).size >= Limits.FRIENDS_MAX) conflict("They have too many friends already")
-    }
-
-    fun acceptFriend(player: PlayerRecord, otherId: String, protocol: Int = 1): FriendsView {
-        synchronized(friendLock) {
-            if (otherId !in store.requestsTo(player.id)) notFound("No friend request from them")
-            checkFriendsRoom(player.id, otherId)
-            store.removeRequest(otherId, player.id)
-            store.addFriendship(player.id, otherId, clock())
-        }
-        return friends(player, protocol)
-    }
-
-    /** Unfriends, declines their request, or takes back yours: whichever there is. */
-    fun removeFriend(player: PlayerRecord, otherId: String, protocol: Int = 1): FriendsView {
-        synchronized(friendLock) {
-            store.removeFriendship(player.id, otherId)
-            store.removeRequest(otherId, player.id)
-            store.removeRequest(player.id, otherId)
-        }
-        return friends(player, protocol)
-    }
-
     /** Invites friends to a lobby you're in. People already at the table are skipped. */
     suspend fun invite(player: PlayerRecord, id: String, playerIds: List<String>): GameRecord = withGame(id) { g ->
         if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
@@ -417,12 +277,6 @@ class GameService(
         if (ids.any { it !in friends }) forbidden("You can only invite friends")
         ids.filter { g.seatOf(it) < 0 }.forEach { store.addInvite(InviteRecord(g.id, it, player.id, clock())) }
         g
-    }
-
-    /** Says no to an invite. Returns the game it was for, if it still exists. */
-    fun declineInvite(player: PlayerRecord, gameId: String): GameRecord? {
-        store.removeInvite(gameId, player.id)
-        return store.game(gameId)
     }
 
     // --- Play --------------------------------------------------------------------------------
@@ -448,6 +302,7 @@ class GameService(
         GameStatus.LOBBY ->
             if (seat == g.hostSeat) {
                 store.deleteGame(g.id)
+                locks.remove(g.id)
                 null
             } else {
                 save(g.copy(seats = g.seats.toMutableList().also { it[seat] = SeatRecord() }))
@@ -508,7 +363,7 @@ class GameService(
 
     // --- Views -------------------------------------------------------------------------------
 
-    fun game(player: PlayerRecord, id: String, protocol: Int = 1): GameRecord {
+    fun game(player: PlayerRecord, id: String, protocol: Int): GameRecord {
         val g = store.game(id) ?: notFound("No such game")
         if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
         g.requireProtocol(protocol)
@@ -516,7 +371,7 @@ class GameService(
     }
 
     /** Your games, leaving out any an app speaking [protocol] couldn't show. */
-    fun gamesOf(player: PlayerRecord, protocol: Int = 1): List<GameSummary> = store.gamesOf(player.id)
+    fun gamesOf(player: PlayerRecord, protocol: Int): List<GameSummary> = store.gamesOf(player.id)
         .filter { it.rules.mode.sinceProtocol <= protocol }
         .map { g ->
         GameSummary(
@@ -538,7 +393,7 @@ class GameService(
     }.sortedWith(compareByDescending<GameSummary> { it.isYourTurn }.thenByDescending { it.updatedAt })
 
     /** The game as [playerId] may see it, in a form an app speaking [protocol] understands. */
-    fun view(g: GameRecord, playerId: String, online: Set<String> = emptySet(), protocol: Int = 1): GameView {
+    fun view(g: GameRecord, playerId: String, online: Set<String>, protocol: Int): GameView {
         val you = g.seatOf(playerId)
         val m = g.match
         val r = m?.round
@@ -580,7 +435,8 @@ class GameService(
             leftSeat = g.leftSeat,
             rematchId = g.rematchId,
             invited = if (g.status != GameStatus.LOBBY) emptyList() else {
-                store.invitesFor(g.id).map { it.toId }.filter { g.seatOf(it) < 0 }.asFriends()
+                store.invitesFor(g.id).map { it.toId }.filter { g.seatOf(it) < 0 }
+                    .mapNotNull { id -> store.player(id)?.let { Friend(it.id, it.name) } }
             },
         )
     }

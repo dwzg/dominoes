@@ -286,6 +286,9 @@ object Limits {
 
     const val FRIEND_CODE_LENGTH = 8
     const val FRIENDS_MAX = 200
+
+    /** Unanswered friend requests one player may have sent, or be sent, at once. */
+    const val FRIEND_REQUESTS_MAX = 50
 }
 
 /** The time limits offered per turn, in seconds (0 is no limit), and the default for each pace. */

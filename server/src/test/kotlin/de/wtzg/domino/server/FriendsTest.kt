@@ -188,6 +188,40 @@ class FriendsTest {
     }
 
     @Test
+    fun friendRequestsAreCapped() = runBlocking {
+        val service = GameService(InMemoryStore(), random = Random(13))
+        val spammer = service.authenticate(service.register("Spam").token)!!
+        repeat(Limits.FRIEND_REQUESTS_MAX) { i ->
+            val p = service.authenticate(service.register("P$i").token)!!
+            service.friends.add(spammer, AddFriendRequest(code = service.friends.code(p)), 1)
+        }
+        val one = service.authenticate(service.register("One").token)!!
+        val tooMany = runCatching { service.friends.add(spammer, AddFriendRequest(code = service.friends.code(one)), 1) }
+        assertEquals(409, (tooMany.exceptionOrNull() as ApiException).status)
+    }
+
+    @Test
+    fun unfriendingDropsInvitesBetweenThem() = testApplication {
+        val c = setUp()
+        val ann = c.register("Ann")
+        val bob = c.register("Bob")
+        c.befriend(ann, bob)
+        val g = c.lobby(ann)
+        c.invite(ann, g.id, bob.playerId)
+        c.post("/friends/${bob.playerId}/remove") { bearerAuth(ann.token) }
+        assertTrue(c.friends(bob).invites.isEmpty())
+    }
+
+    @Test
+    fun aFriendCodeIsNeverHandedToTwoPlayers() {
+        for (store in listOf(InMemoryStore(), SqliteStore(kotlin.io.path.createTempFile("domino", ".db").toFile().also { it.deleteOnExit() }.path))) {
+            store.setFriendCode("a", "SAMECODE")
+            assertTrue(runCatching { store.setFriendCode("b", "SAMECODE") }.isFailure)
+            assertEquals("SAMECODE", store.friendCode("a"))
+        }
+    }
+
+    @Test
     fun serverSaysItHasFriendsAndServesFriendLinks() = testApplication {
         val c = setUp()
         assertTrue(ServerFeatures.FRIENDS in c.get("/version").body<ServerInfo>().features)
@@ -203,26 +237,26 @@ class FriendsTest {
             val ann = service.authenticate(service.register("Ann").token)!!
             val bob = service.authenticate(service.register("Bob").token)!!
             val cat = service.authenticate(service.register("Cat").token)!!
-            val code = service.friendCode(ann)
-            service.addFriend(bob, AddFriendRequest(code = code))
-            service.addFriend(cat, AddFriendRequest(code = code))
-            service.acceptFriend(ann, bob.id)
-            val g = service.create(ann, CreateGameRequest(GameMode.ALL_FIVES, 2, 100, Pace.LIVE))
+            val code = service.friends.code(ann)
+            service.friends.add(bob, AddFriendRequest(code = code), 1)
+            service.friends.add(cat, AddFriendRequest(code = code), 1)
+            service.friends.accept(ann, bob.id, 1)
+            val g = service.create(ann, CreateGameRequest(GameMode.ALL_FIVES, 2, 100, Pace.LIVE), 1)
             service.invite(ann, g.id, listOf(bob.id))
 
             // A restart keeps everything.
             val again = GameService(SqliteStore(file.path))
-            assertEquals(code, again.friendCode(ann))
-            val anns = again.friends(ann)
+            assertEquals(code, again.friends.code(ann))
+            val anns = again.friends.page(ann, 1)
             assertEquals(listOf("Bob"), anns.friends.map { it.name })
             assertEquals(listOf("Cat"), anns.requests.map { it.name })
-            assertEquals(listOf(g.id), again.friends(bob).invites.map { it.gameId })
-            assertEquals(listOf("Ann"), again.friends(cat).sent.map { it.name })
+            assertEquals(listOf(g.id), again.friends.page(bob, 1).invites.map { it.gameId })
+            assertEquals(listOf("Ann"), again.friends.page(cat, 1).sent.map { it.name })
 
-            again.removeFriend(ann, cat.id)
-            assertTrue(again.friends(cat).sent.isEmpty())
+            again.friends.remove(ann, cat.id, 1)
+            assertTrue(again.friends.page(cat, 1).sent.isEmpty())
             SqliteStore(file.path).deleteGame(g.id)
-            assertTrue(again.friends(bob).invites.isEmpty())
+            assertTrue(again.friends.page(bob, 1).invites.isEmpty())
         } finally {
             file.delete()
         }

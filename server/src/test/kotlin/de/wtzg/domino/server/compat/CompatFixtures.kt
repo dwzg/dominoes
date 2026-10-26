@@ -68,8 +68,8 @@ fun writeCompatFixtures(root: File) {
     val ann = service.authenticate(annReg.token)!!
     val bob = service.register("Bob").let { service.authenticate(it.token)!! }
 
-    val lobby = service.create(ann, CreateGameRequest(GameMode.ALL_FIVES, 3, 100, Pace.TURN_BASED))
-    val lobbyView = service.view(runBlocking { service.join(bob, lobby.code) }, ann.id, setOf(ann.id))
+    val lobby = service.create(ann, CreateGameRequest(GameMode.ALL_FIVES, 3, 100, Pace.TURN_BASED), 1)
+    val lobbyView = service.view(runBlocking { service.join(bob, lobby.code, 1) }, ann.id, setOf(ann.id), 1)
     var g = runBlocking { service.start(ann, lobby.id, Difficulty.HARD) }
     // Play until a hand has finished and the next one has a few moves.
     var guard = 0
@@ -108,7 +108,7 @@ fun writeCompatFixtures(root: File) {
         ),
     )
     write("game-view-lobby.json", GameView.serializer(), lobbyView)
-    write("game-view-playing.json", GameView.serializer(), service.view(g, ann.id, setOf(ann.id, bob.id)))
-    write("games.json", ListSerializer(GameSummary.serializer()), service.gamesOf(ann))
+    write("game-view-playing.json", GameView.serializer(), service.view(g, ann.id, setOf(ann.id, bob.id), 1))
+    write("games.json", ListSerializer(GameSummary.serializer()), service.gamesOf(ann, 1))
     write("game-record.json", GameRecord.serializer(), g)
 }

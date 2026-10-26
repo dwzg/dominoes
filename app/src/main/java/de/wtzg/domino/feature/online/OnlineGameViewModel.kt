@@ -17,6 +17,7 @@ import de.wtzg.domino.protocol.ServerFeatures
 import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.legalMoves
+import de.wtzg.domino.ui.components.BADGE_MS
 import de.wtzg.domino.ui.components.TableBadge
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -161,7 +162,7 @@ class OnlineGameViewModel(
             val scored = newEvents.filterIsInstance<PublicEvent.Played>().lastOrNull { it.points > 0 }
             val badge = scored?.let {
                 val who = if (it.seat == v.yourSeat) "" else "${v.seats[it.seat].name} "
-                TableBadge(++badgeId, "$who+${it.points}")
+                newBadge("$who+${it.points}")
             }
             // On first sight, only show the last hand's summary if the new hand has barely started.
             val acked = if (old == null && v.events.size > 1) v.lastHand?.handNumber ?: 0 else s.ackedHand
@@ -174,6 +175,16 @@ class OnlineGameViewModel(
             )
         }
         sendChallenge(v)
+    }
+
+    /** A score badge that goes away after it's been shown, so coming back to the table doesn't replay it. */
+    private fun newBadge(text: String): TableBadge {
+        val badge = TableBadge(++badgeId, text)
+        viewModelScope.launch {
+            delay(BADGE_MS)
+            _state.update { if (it.badge?.id == badge.id) it.copy(badge = null) else it }
+        }
+        return badge
     }
 
     /** The challenge invite goes out once, as soon as we're in the lobby. */

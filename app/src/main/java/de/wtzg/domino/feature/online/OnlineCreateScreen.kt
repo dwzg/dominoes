@@ -19,9 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -38,8 +35,11 @@ import de.wtzg.domino.protocol.CreateGameRequest
 import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
+import de.wtzg.domino.ui.components.ChoiceRow
 import de.wtzg.domino.ui.components.CustomTargetDialog
 import de.wtzg.domino.ui.components.ErrorDialog
+import de.wtzg.domino.ui.components.Label
+import de.wtzg.domino.ui.components.TargetChips
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,18 +95,12 @@ fun OnlineCreateScreen(
 
             if (allowPublic) {
                 Label("Who can join")
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = visibility == Visibility.PRIVATE,
-                        onClick = { visibility = Visibility.PRIVATE },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2),
-                    ) { Text("Invite only") }
-                    SegmentedButton(
-                        selected = visibility == Visibility.PUBLIC,
-                        onClick = { visibility = Visibility.PUBLIC },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2),
-                    ) { Text("Anyone") }
-                }
+                ChoiceRow(
+                    Visibility.entries,
+                    visibility,
+                    label = { if (it == Visibility.PRIVATE) "Invite only" else "Anyone" },
+                    onSelect = { visibility = it },
+                )
                 Text(
                     if (visibility == Visibility.PRIVATE) "Only people you send the code, link or QR code to can join."
                     else "Listed under Open games for everyone on this server until the seats are full. You can still invite friends.",
@@ -138,10 +132,6 @@ fun OnlineCreateScreen(
     }
 }
 
-@Composable
-private fun Label(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-}
 
 /**
  * The game, table size, target and pace, as chosen when creating a game and when the host
@@ -178,16 +168,7 @@ fun GameSettingsFields(
         Text(mode.rulesSummary(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Label("Players at the table")
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            (2..4).forEachIndexed { i, n ->
-                SegmentedButton(
-                    selected = players == n,
-                    onClick = { onPlayers(n) },
-                    enabled = n >= minPlayers,
-                    shape = SegmentedButtonDefaults.itemShape(i, 3),
-                ) { Text("$n") }
-            }
-        }
+        ChoiceRow(options = (2..4).toList(), selected = players, label = { "$it" }, onSelect = onPlayers, enabled = { it >= minPlayers })
         Text(
             if (minPlayers > 2) "$minPlayers people are already seated, so the table can't be smaller. " +
                 "Seats nobody takes are filled with computer players when you start."
@@ -197,33 +178,10 @@ fun GameSettingsFields(
         )
 
         Label("Play to")
-        val presets = listOf(mode.defaultTarget) + listOf(60, 100, 150).filter { it != mode.defaultTarget }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            presets.forEach { t ->
-                FilterChip(
-                    selected = target == t,
-                    onClick = { onTarget(t) },
-                    label = { Text(if (t == mode.defaultTarget) "$t · Standard" else "$t") },
-                )
-            }
-            FilterChip(
-                selected = target !in presets,
-                onClick = { customTarget = true },
-                label = { Text(if (target in presets) "Custom" else "Custom: $target") },
-            )
-        }
+        TargetChips(mode, target, onSelect = onTarget, onCustom = { customTarget = true })
 
         Label("Pace")
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SegmentedButton(selected = pace == Pace.LIVE, onClick = { onPace(Pace.LIVE) }, shape = SegmentedButtonDefaults.itemShape(0, 2)) {
-                Text("Live")
-            }
-            SegmentedButton(
-                selected = pace == Pace.TURN_BASED,
-                onClick = { onPace(Pace.TURN_BASED) },
-                shape = SegmentedButtonDefaults.itemShape(1, 2),
-            ) { Text("Turn by turn") }
-        }
+        ChoiceRow(Pace.entries, pace, label = { if (it == Pace.LIVE) "Live" else "Turn by turn" }, onSelect = onPace)
         Text(
             if (pace == Pace.LIVE) "Everyone plays at the same time, like sitting at one table."
             else "Take your turn whenever you like. The app lets you know when it's your move.",

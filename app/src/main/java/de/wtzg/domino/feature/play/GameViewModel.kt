@@ -377,9 +377,4 @@ class GameViewModel(
             else -> CoachNote(NoteKind.INFO, "$who opens", "$who holds the highest tile, $open, so they play it first.")
         }
     }
-
-    companion object {
-        /** Kept until the online table uses [numbersText] directly. */
-        fun numbers(values: List<Int>): String = numbersText(values)
-    }
 }

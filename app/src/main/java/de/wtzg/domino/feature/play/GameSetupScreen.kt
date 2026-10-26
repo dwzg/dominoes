@@ -1,6 +1,5 @@
 package de.wtzg.domino.feature.play
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,22 +13,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,8 +36,13 @@ import de.wtzg.domino.data.GameOptions
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.engine.Rules
+import de.wtzg.domino.ui.components.ChoiceRow
+import de.wtzg.domino.ui.components.ConfirmDialog
 import de.wtzg.domino.ui.components.CustomTargetDialog
+import de.wtzg.domino.ui.components.Label
 import de.wtzg.domino.ui.components.ModeArt
+import de.wtzg.domino.ui.components.SwitchRow
+import de.wtzg.domino.ui.components.TargetChips
 
 /** Rules in a few lines, shown before you start. */
 fun GameMode.rulesSummary(): String = when (this) {
@@ -58,12 +55,6 @@ fun GameMode.rulesSummary(): String = when (this) {
         "Going out scores the others' pips, rounded to the nearest 5."
     GameMode.ALL_THREES -> "Like All Fives, but every multiple of 3 scores. " +
         "Going out scores the others' pips, rounded to the nearest 3."
-}
-
-private fun GameMode.targets(): List<Int> = when (this) {
-    GameMode.DRAW, GameMode.BLOCK -> listOf(60, 100, 150)
-    GameMode.ALL_FIVES -> listOf(61, 100, 150, 250)
-    GameMode.ALL_THREES -> listOf(60, 90, 150)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -110,15 +101,7 @@ fun GameSetupScreen(
             }
 
             Label("Opponents")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                (1..3).forEach { n ->
-                    SegmentedButton(
-                        selected = opponents == n,
-                        onClick = { opponents = n },
-                        shape = SegmentedButtonDefaults.itemShape(n - 1, 3),
-                    ) { Text("$n") }
-                }
-            }
+            ChoiceRow((1..3).toList(), opponents, label = { "$it" }, onSelect = { opponents = it })
             Text(
                 SEAT_NAMES.drop(1).take(opponents).joinToString(", ") + if (opponents > 1 && mode != GameMode.BLOCK) ". 5 tiles each." else "",
                 style = MaterialTheme.typography.bodySmall,
@@ -126,44 +109,18 @@ fun GameSetupScreen(
             )
 
             Label("Difficulty")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                Difficulty.entries.forEachIndexed { i, d ->
-                    SegmentedButton(
-                        selected = difficulty == d,
-                        onClick = { difficulty = d },
-                        shape = SegmentedButtonDefaults.itemShape(i, Difficulty.entries.size),
-                    ) { Text(d.label) }
-                }
-            }
+            ChoiceRow(Difficulty.entries, difficulty, label = { it.label }, onSelect = { difficulty = it })
             Text(difficulty.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Label("Play to")
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                mode.targets().forEach { t ->
-                    FilterChip(
-                        selected = target == t,
-                        onClick = { target = t },
-                        label = { Text(if (t == mode.defaultTarget) "$t · Standard" else "$t") },
-                    )
-                }
-                FilterChip(
-                    selected = target !in mode.targets(),
-                    onClick = { customTarget = true },
-                    label = { Text(if (target in mode.targets()) "Custom" else "Custom: $target") },
-                )
-            }
+            TargetChips(mode, target, onSelect = { target = it }, onCustom = { customTarget = true })
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Coach", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Rates every move you make and explains a better one",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = coach, onCheckedChange = { coach = it })
-            }
+            SwitchRow(
+                title = "Coach",
+                subtitle = "Rates every move you make and explains a better one",
+                checked = coach,
+                onCheckedChange = { coach = it },
+            )
 
             Spacer(Modifier.height(8.dp))
             Button(
@@ -184,17 +141,12 @@ fun GameSetupScreen(
     }
 
     if (confirm) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text("Start a new game?") },
-            text = { Text("Your game in progress will be lost.") },
-            confirmButton = { TextButton(onClick = { confirm = false; start() }) { Text("Start new") } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            title = "Start a new game?",
+            text = "Your game in progress will be lost.",
+            confirmLabel = "Start new",
+            onConfirm = { confirm = false; start() },
+            onDismiss = { confirm = false },
         )
     }
-}
-
-@Composable
-private fun Label(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
 }

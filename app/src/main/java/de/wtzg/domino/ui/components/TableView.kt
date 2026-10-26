@@ -27,7 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +65,9 @@ data class TableTarget(val move: Move, val isHint: Boolean)
 /** A short-lived badge over the table, e.g. "+15" when a play scores. [id] restarts the animation. */
 data class TableBadge(val id: Long, val text: String)
 
+/** How long a [TableBadge] shows. Clear it after this so it doesn't show again when the table is redrawn. */
+const val BADGE_MS = 1600L
+
 /**
  * The domino table. Tiles keep their place as the line grows; the camera pans and
  * zooms smoothly to keep everything in view, and the newest tile slides in.
@@ -85,6 +90,11 @@ fun TableView(
     val laid = remember(board, halfWidth) { BoardLayout.layout(board, halfWidth) }
     val slots = remember(board, targets, halfWidth) { targets.map { it to BoardLayout.slot(board, it.move, halfWidth) } }
     val felt = LocalFelt.current
+    // Tiles already down when the table appears (e.g. after rotating or coming back to a game)
+    // don't fly in again. Once those tiles leave the table (a new hand), every tile is new.
+    var settled by remember { mutableStateOf(board.tiles.toSet()) }
+    val stillDown = board.tiles.containsAll(settled)
+    LaunchedEffect(stillDown) { if (!stillDown) settled = emptySet() }
 
     BoxWithConstraints(
         modifier
@@ -126,7 +136,8 @@ fun TableView(
             val origin = IntOffset((widthPx / 2).roundToInt(), (heightPx / 2).roundToInt())
             laid.forEach { t ->
                 key(t.tile) {
-                    TableTile(t, origin, unitPx, animateIn = t.tile == lastPlaced, fromTop = lastPlacedByOpponent)
+                    val last = t.tile == lastPlaced
+                    TableTile(t, origin, unitPx, animateIn = last && !(stillDown && t.tile in settled), highlighted = last, fromTop = lastPlacedByOpponent)
                 }
             }
             slots.forEach { (target, slot) ->
@@ -177,7 +188,7 @@ private fun Modifier.at(l: Laid, origin: IntOffset, unitPx: Float) = offset {
 }
 
 @Composable
-private fun TableTile(l: Laid, origin: IntOffset, unitPx: Float, animateIn: Boolean, fromTop: Boolean) {
+private fun TableTile(l: Laid, origin: IntOffset, unitPx: Float, animateIn: Boolean, highlighted: Boolean, fromTop: Boolean) {
     val progress = remember { Animatable(if (animateIn) 0f else 1f) }
     LaunchedEffect(Unit) {
         progress.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow))
@@ -187,7 +198,7 @@ private fun TableTile(l: Laid, origin: IntOffset, unitPx: Float, animateIn: Bool
         l.first, l.second,
         vertical = l.vertical,
         half = half,
-        highlighted = animateIn,
+        highlighted = highlighted,
         elevation = 3.dp,
         modifier = Modifier
             .at(l, origin, unitPx)
@@ -234,7 +245,7 @@ private fun TargetSpot(target: TableTarget, l: Laid, board: Board, origin: IntOf
 @Composable
 private fun Badge(text: String, modifier: Modifier) {
     val p = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { p.animateTo(1f, tween(1600)) }
+    LaunchedEffect(Unit) { p.animateTo(1f, tween(BADGE_MS.toInt())) }
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,

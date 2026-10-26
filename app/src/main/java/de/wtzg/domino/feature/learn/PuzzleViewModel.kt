@@ -9,6 +9,7 @@ import de.wtzg.domino.engine.Puzzle
 import de.wtzg.domino.engine.Puzzles
 import de.wtzg.domino.engine.Tile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,19 +27,28 @@ data class PuzzleUiState(
     val solved: Boolean? get() = answer?.let { puzzle?.isGood(it) }
 }
 
-class PuzzleViewModel(mode: GameMode, private val stats: StatsRepository) : ViewModel() {
+class PuzzleViewModel(
+    mode: GameMode,
+    private val stats: StatsRepository,
+    // Finding a good position simulates games; keep it off the main thread.
+    private val generate: suspend (GameMode) -> Puzzle = { withContext(Dispatchers.Default) { Puzzles.generate(it, players = 2) } },
+) : ViewModel() {
     private val _state = MutableStateFlow(PuzzleUiState(mode))
     val state: StateFlow<PuzzleUiState> = _state.asStateFlow()
+
+    // Declared before init, which sets up the first puzzle, so that one can be cancelled too.
+    private var generating: Job? = null
 
     init {
         next()
     }
 
     fun next() {
+        // A puzzle still being set up would otherwise replace the new one when it's done.
+        generating?.cancel()
         _state.update { PuzzleUiState(it.mode) }
-        viewModelScope.launch {
-            // Finding a good position simulates games; keep it off the main thread.
-            val p = withContext(Dispatchers.Default) { Puzzles.generate(_state.value.mode, players = 2) }
+        generating = viewModelScope.launch {
+            val p = generate(_state.value.mode)
             _state.update { it.copy(puzzle = p) }
         }
     }

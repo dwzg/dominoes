@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,12 +31,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.engine.Evaluation
 import de.wtzg.domino.engine.Move
 import de.wtzg.domino.engine.Puzzle
 import de.wtzg.domino.engine.Strategy
-import de.wtzg.domino.feature.play.GameViewModel
+import de.wtzg.domino.engine.Tile
 import de.wtzg.domino.feature.play.SEAT_NAMES
+import de.wtzg.domino.feature.play.numbersText
 import de.wtzg.domino.ui.components.DominoTile
+import de.wtzg.domino.ui.components.HandRow
 import de.wtzg.domino.ui.components.TableTarget
 import de.wtzg.domino.ui.components.TableView
 
@@ -46,7 +47,7 @@ import de.wtzg.domino.ui.components.TableView
 @Composable
 fun PuzzleScreen(
     state: PuzzleUiState,
-    onTapTile: (de.wtzg.domino.engine.Tile) -> Unit,
+    onTapTile: (Tile) -> Unit,
     onAnswer: (Move) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
@@ -117,14 +118,13 @@ fun PuzzleScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.engine.Tile) -> Unit, onNext: () -> Unit) {
+private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (Tile) -> Unit, onNext: () -> Unit) {
     val r = p.round
     // What you know: the opponent's tiles, what they've shown they lack, the boneyard.
     val facts = buildList {
         add("${SEAT_NAMES[1]} holds ${r.hands[1].size} tiles. Boneyard: ${r.boneyard.size}.")
-        r.lacks[1].takeIf { it.isNotEmpty() }?.let { add("${SEAT_NAMES[1]} has shown no ${GameViewModel.numbers(it.sorted())}.") }
+        r.lacks[1].takeIf { it.isNotEmpty() }?.let { add("${SEAT_NAMES[1]} has shown no ${numbersText(it.sorted())}.") }
         if (r.rules.mode.scoresDuringPlay) add("The open ends add up to ${r.board.endCount()}.")
     }
     Card(
@@ -139,7 +139,7 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
 
     state.answer?.let { ans ->
         val good = state.solved == true
-        val mine = p.ranked.first { it.move == ans }
+        val mine = p.ranked.firstOrNull { it.move == ans }
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -152,7 +152,7 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
                 p.best.pros.take(3).forEach { Text("• $it") }
                 if (!good) {
                     Text("Your move: ${Strategy.describe(ans, r.board)}", fontWeight = FontWeight.Bold)
-                    whyNot(p, ans, mine).forEach { Text("• $it") }
+                    mine?.let { m -> whyNot(p, ans, m).forEach { Text("• $it") } }
                 }
                 Button(onClick = onNext, modifier = Modifier.padding(top = 4.dp)) { Text("Next puzzle") }
             }
@@ -163,37 +163,24 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
         Text("${state.selected} fits more than one end. Tap a glowing spot on the table.", style = MaterialTheme.typography.bodyMedium)
     }
     val legal = r.legalMoves()
-    val hand = r.hands[0]
-    val gap = if (hand.size > 9) 4.dp else 6.dp
-    BoxWithConstraints(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp),
-    ) {
-        // Same sizing as the hand in a game: as big as fits on one row, up to the game's maximum.
-        val n = hand.size.coerceAtLeast(1)
-        val half = ((maxWidth - 1.dp - gap * (n - 1)) / n).coerceIn(18.dp, 44.dp)
-        FlowRow(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(gap),
-        ) {
-            hand.forEach { t ->
-                DominoTile(
-                    t.a, t.b,
-                    half = half,
-                    highlighted = t == state.selected || (state.answer != null && t == p.best.move.tile),
-                    dimmed = legal.none { it.tile == t },
-                    elevation = 2.dp,
-                    onClick = { onTapTile(t) },
-                )
-            }
-        }
+    // Sized like the hand in a game.
+    HandRow(r.hands[0], Modifier.padding(bottom = 12.dp), maxHalf = 44.dp) { _, t, half ->
+        val fits = legal.any { it.tile == t }
+        DominoTile(
+            t.a, t.b,
+            half = half,
+            highlighted = t == state.selected || (state.answer != null && t == p.best.move.tile),
+            dimmed = !fits,
+            elevation = 2.dp,
+            onClick = { onTapTile(t) },
+            selected = t == state.selected,
+            stateDescription = if (fits) null else "Doesn't fit",
+        )
     }
 }
 
 /** Concrete reasons your move was weaker: what it gave up compared with the best one. */
-private fun whyNot(p: Puzzle, ans: Move, mine: de.wtzg.domino.engine.Evaluation): List<String> {
+private fun whyNot(p: Puzzle, ans: Move, mine: Evaluation): List<String> {
     val r = p.round
     val out = mutableListOf<String>()
     val myPoints = r.pointsFor(ans)

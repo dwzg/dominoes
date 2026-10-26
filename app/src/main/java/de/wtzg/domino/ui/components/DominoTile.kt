@@ -21,8 +21,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -31,6 +34,11 @@ import de.wtzg.domino.ui.theme.LocalTileFace
 
 private val Ivory = Color(0xFFFBF8EF)
 private val Pip = Color(0xFF263238)
+
+// The back of a tile: a fixed deep slate that stands out on every felt and on light and dark
+// screens alike (the theme colour blends into the green felt), with a brass pin like a real tile.
+private val Back = Color(0xFF1F2A36)
+private val Brass = Color(0xFFC9A54A)
 
 /** One colour per number for the coloured faces, dark enough to read on ivory. */
 private val NUMBER_COLORS = listOf(
@@ -72,10 +80,13 @@ fun DominoTile(
     dimmed: Boolean = false,
     elevation: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
+    /** Read out whether the tile is picked, for tiles that can be (e.g. in your hand). */
+    selected: Boolean? = null,
+    /** Read out after the tile's numbers, e.g. "doesn't fit". */
+    stateDescription: String? = null,
 ) {
     val face = LocalTileFace.current
     val shape = RoundedCornerShape(half * 0.18f)
-    val back = MaterialTheme.colorScheme.primary
     val ring = if (highlighted) MaterialTheme.colorScheme.tertiary else Color(0xFF9E9E9E)
     Box(
         modifier
@@ -83,12 +94,20 @@ fun DominoTile(
             .alpha(if (dimmed) 0.4f else 1f)
             .shadow(elevation, shape)
             .clip(shape)
-            .background(if (faceDown) back else Ivory)
+            .background(if (faceDown) Back else Ivory)
             .border(if (highlighted) 3.dp else 1.dp, ring, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .semantics { contentDescription = if (faceDown) "Hidden tile" else "$first-$second" },
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .semantics {
+                contentDescription = if (faceDown) "Hidden tile" else "$first-$second"
+                stateDescription?.let { this.stateDescription = it }
+                selected?.let { this.selected = it }
+            },
     ) {
-        if (!faceDown) {
+        if (faceDown) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(Brass, minOf(size.width, size.height) * 0.11f)
+            }
+        } else {
             TileDivider(vertical)
             if (face == TileFace.NUMBERS) {
                 Digits(first, second, vertical, half)

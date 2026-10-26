@@ -16,7 +16,7 @@ data class Puzzle(val round: Round, val ranked: List<Evaluation>) {
     }
 
     companion object {
-        const val SOLVED_MARGIN = 1.0
+        private const val SOLVED_MARGIN = 1.0
     }
 }
 
@@ -24,9 +24,12 @@ object Puzzles {
     /** Minimum lead of the best move over the next-best different tile. */
     private const val MIN_GAP = 2.0
 
+    /** Hands to play through before giving up; a puzzle nearly always turns up in the first few. */
+    private const val MAX_DEALS = 500
+
     fun generate(mode: GameMode, random: Random = Random, players: Int = 2): Puzzle {
         val rules = Rules(mode, players)
-        repeat(500) {
+        repeat(MAX_DEALS) {
             var r = Round.deal(rules, random)
             while (!r.isOver) {
                 if (r.turn == 0 && r.board.size >= 3 && r.hands[0].size >= 3) {
@@ -46,7 +49,7 @@ object Puzzles {
         val ranked = Strategy.evaluateAll(r, 0)
         if (ranked.map { it.move.tile }.distinct().size < 3) return null
         val best = ranked.first()
-        if (best.pros.isEmpty() || best.score >= 500) return null
+        if (best.pros.isEmpty()) return null
         val runnerUp = ranked.firstOrNull { it.move.tile != best.move.tile } ?: return null
         // Other placements of the best tile must not be just as good, or the answer is ambiguous.
         val sameTileClose = ranked.drop(1).any { it.move.tile == best.move.tile && it.score > best.score - MIN_GAP }

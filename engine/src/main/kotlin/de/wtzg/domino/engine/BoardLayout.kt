@@ -1,5 +1,7 @@
 package de.wtzg.domino.engine
 
+import kotlin.math.abs
+
 /**
  * A tile's spot on the table, in units of half a tile (a tile is 2×1).
  * [first] is shown on the top (vertical) or left (horizontal) half.
@@ -38,10 +40,10 @@ object BoardLayout {
         )
         val edge = if (s.isDouble) 0.5f else 1f
         if (board.hasSpinner) {
-            Walker(edge, 0f, 1, 0, halfWidth, turnDown = true).run(board.east, out)
-            Walker(-edge, 0f, -1, 0, halfWidth, turnDown = true).run(board.west, out)
-            Walker(0f, -1f, 0, -1, Float.MAX_VALUE, turnDown = false).run(board.north, out)
-            Walker(0f, 1f, 0, 1, Float.MAX_VALUE, turnDown = false).run(board.south, out)
+            Walker(edge, 0f, 1, 0, halfWidth).run(board.east, out)
+            Walker(-edge, 0f, -1, 0, halfWidth).run(board.west, out)
+            Walker(0f, -1f, 0, -1, turnAt = null).run(board.north, out)
+            Walker(0f, 1f, 0, 1, turnAt = null).run(board.south, out)
         } else {
             snake(board.east, edge, dir = 1, vdir = 1, halfWidth, out)
             snake(board.west, -edge, dir = -1, vdir = -1, halfWidth, out)
@@ -93,15 +95,15 @@ object BoardLayout {
 
     /**
      * Walks one arm of a spinner cross from (px, py) heading (dx, dy). Sideways arms
-     * turn down once at the edge and then run straight; north and south never turn.
+     * turn down once they would pass ±[turnAt] and then run straight; north and south
+     * never turn (null).
      */
     private class Walker(
         var px: Float,
         var py: Float,
         var dx: Int,
         var dy: Int,
-        val halfWidth: Float,
-        val turnDown: Boolean,
+        val turnAt: Float?,
     ) {
         private var afterTurn = false
 
@@ -113,7 +115,7 @@ object BoardLayout {
             val (tile, inner, outer) = link
             val crosswise = tile.isDouble && !afterTurn
             val length = if (crosswise) 1f else 2f
-            if (dx != 0 && turnDown && kotlin.math.abs(px + dx * length) > halfWidth) return corner(link)
+            if (dx != 0 && turnAt != null && abs(px + dx * length) > turnAt) return corner(link)
             afterTurn = false
             return if (crosswise) {
                 // Along the heading 1 unit, across it 2 units.

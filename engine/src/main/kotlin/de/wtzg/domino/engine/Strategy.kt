@@ -31,19 +31,19 @@ data class Evaluation(val move: Move, val factors: List<Factor>) {
 object Strategy {
 
     /** Numbers [of] can't hold, as far as [viewer] can tell. */
-    fun knownLacks(round: Round, viewer: Int, of: Int): Set<Int> {
+    internal fun knownLacks(round: Round, viewer: Int, of: Int): Set<Int> {
         val visible = round.hands[viewer] + round.board.tiles
         val allSeen = (0..6).filter { n -> visible.count { it.has(n) } == 7 }
         return round.lacks[of] + allSeen
     }
 
     /** Tiles [viewer] hasn't seen: in other hands or the boneyard. */
-    fun unseenTiles(round: Round, viewer: Int): List<Tile> {
+    internal fun unseenTiles(round: Round, viewer: Int): List<Tile> {
         val visible = (round.hands[viewer] + round.board.tiles).toSet()
         return Tile.SET.filter { it !in visible }
     }
 
-    fun unseenCount(round: Round, viewer: Int, n: Int): Int = unseenTiles(round, viewer).count { it.has(n) }
+    internal fun unseenCount(round: Round, viewer: Int, n: Int): Int = unseenTiles(round, viewer).count { it.has(n) }
 
     fun evaluateAll(round: Round, player: Int = round.turn): List<Evaluation> =
         round.legalMoves(player).map { evaluate(round, player, it) }.sortedByDescending { it.score }
@@ -59,8 +59,10 @@ object Strategy {
             return Evaluation(move, listOf(Factor(1000.0 + scored, "It's your last tile: play it and win the hand.")))
         }
         if (round.board.isEmpty && round.opening != null) {
-            val text = if (scored > 0) "The highest double opens the hand, and it scores $scored." else
-                "The highest double always opens the hand."
+            // Round.deal falls back to the heaviest tile when nobody has a double.
+            val opener = if (tile.isDouble) "The highest double" else "Nobody has a double, so the heaviest tile"
+            val text = if (scored > 0) "$opener opens the hand, and it scores $scored." else
+                "$opener ${if (tile.isDouble) "always opens" else "opens"} the hand."
             return Evaluation(move, listOf(Factor(scored.toDouble(), text)))
         }
 
@@ -84,9 +86,10 @@ object Strategy {
             f += Factor(3.0, "Doubles fit only one number, so they get stuck easily. Play them while you can.")
         }
 
+        val stuck = if (rules.mode.drawsFromBoneyard) "draw or pass" else "pass" // no drawing in Block
         val followUps = rest.count { t -> ends.any { t.has(it) } }
         f += if (followUps == 0) {
-            Factor(-6.0, "It leaves you no tile for any end, so you'll likely have to draw or pass next turn.")
+            Factor(-6.0, "It leaves you no tile for any end, so you'll likely have to $stuck next turn.")
         } else {
             Factor(minOf(followUps, 4) * 1.2, if (followUps >= 2) "You keep $followUps tiles that fit the new ends." else null)
         }
@@ -98,11 +101,11 @@ object Strategy {
         when {
             lacking.size == ends.size -> f += Factor(
                 8.0 * urgency,
-                "Every open end (${ends.joinToString(", ")}) is a number ${who.lowercase()} doesn't have, so it must draw or pass.",
+                "Every open end (${ends.joinToString(", ")}) is a number ${who.lowercase()} doesn't have, so they have to $stuck.",
             )
             lacking.isNotEmpty() -> f += Factor(
                 2.5 * urgency,
-                "Afterwards an end shows ${lacking.first()}, and ${who.lowercase()} has shown it has no ${lacking.first()}s.",
+                "Afterwards an end shows ${lacking.first()}, and ${who.lowercase()} has shown they have no ${lacking.first()}s.",
             )
         }
 
@@ -121,7 +124,7 @@ object Strategy {
         if (nextTiles <= 2 && !scoring) {
             val risky = ends.filter { it !in nextLacks && unseenCount(round, player, it) >= 3 }
             if (risky.isNotEmpty()) {
-                f += Factor(-2.0, "$who is close to going out, and a ${risky.first()} end may give it a play.")
+                f += Factor(-2.0, "$who is close to going out, and a ${risky.first()} end may give them a play.")
             }
         }
 

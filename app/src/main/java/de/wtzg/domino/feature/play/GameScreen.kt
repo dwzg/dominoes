@@ -52,6 +52,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -352,7 +353,7 @@ private fun Messages(table: TableUi, compact: Boolean = false) {
     val others = table.log.joinToString(" ").ifEmpty { null }
     if (coach == null && others == null) return
 
-    var showAll by remember { mutableStateOf(false) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     var cut by remember(coach, others) { mutableStateOf(false) }
 
     Card(

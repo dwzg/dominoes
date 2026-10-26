@@ -20,6 +20,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -27,11 +31,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -43,9 +50,30 @@ fun ScoreHistoryScreen(
     onDelete: (Long) -> Unit,
     onClear: () -> Unit,
 ) {
-    var confirmClear by remember { mutableStateOf(false) }
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // Deleted games stay hidden here until the Undo snackbar is gone; only then are they
+    // really deleted. Leaving the screen early deletes them too.
+    var pending by remember { mutableStateOf(emptySet<Long>()) }
+    val shown = games.filterNot { it.id in pending }
+    val delete = { id: Long ->
+        pending = pending + id
+        // One snackbar at a time: dismissing the previous one deletes its game.
+        snackbar.currentSnackbarData?.dismiss()
+        scope.launch {
+            var undone = false
+            try {
+                undone = snackbar.showSnackbar("Game deleted", actionLabel = "Undo", duration = SnackbarDuration.Short) ==
+                    SnackbarResult.ActionPerformed
+            } finally {
+                if (undone) pending = pending - id else onDelete(id)
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("Past games") },
@@ -55,25 +83,26 @@ fun ScoreHistoryScreen(
                     }
                 },
                 actions = {
-                    if (games.isNotEmpty()) {
+                    if (shown.isNotEmpty()) {
                         TextButton(onClick = { confirmClear = true }) { Text("Clear") }
                     }
                 },
             )
         },
     ) { padding ->
-        if (games.isEmpty()) {
+        if (shown.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("Finished games will show up here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
+            val dateFormat = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                item { WinsSummary(games) }
-                items(games, key = { it.id }) { game -> HistoryCard(game, onDelete = { onDelete(game.id) }) }
+                item { WinsSummary(shown) }
+                items(shown, key = { it.id }) { game -> HistoryCard(game, dateFormat, onDelete = { delete(game.id) }) }
             }
         }
     }
@@ -112,11 +141,10 @@ private fun WinsSummary(games: List<ScoreGame>) {
 }
 
 @Composable
-private fun HistoryCard(game: ScoreGame, onDelete: () -> Unit) {
+private fun HistoryCard(game: ScoreGame, dateFormat: DateFormat, onDelete: () -> Unit) {
     val totals = game.totals
     val winner = game.winnerIndex
-    val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-        .format(Date(game.finishedAt ?: game.startedAt))
+    val date = dateFormat.format(Date(game.finishedAt ?: game.startedAt))
     val rule = when (game.mode) {
         ScoreMode.FIRST_TO_TARGET -> "First to ${game.limit}"
         ScoreMode.LOWEST_AFTER_ROUNDS -> "Lowest after ${game.limit} rounds"

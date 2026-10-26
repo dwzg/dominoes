@@ -9,6 +9,7 @@ import de.wtzg.domino.engine.Puzzle
 import de.wtzg.domino.engine.Puzzles
 import de.wtzg.domino.engine.Tile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,9 +35,13 @@ class PuzzleViewModel(mode: GameMode, private val stats: StatsRepository) : View
         next()
     }
 
+    private var generating: Job? = null
+
     fun next() {
+        // A puzzle still being set up would otherwise replace the new one when it's done.
+        generating?.cancel()
         _state.update { PuzzleUiState(it.mode) }
-        viewModelScope.launch {
+        generating = viewModelScope.launch {
             // Finding a good position simulates games; keep it off the main thread.
             val p = withContext(Dispatchers.Default) { Puzzles.generate(_state.value.mode, players = 2) }
             _state.update { it.copy(puzzle = p) }

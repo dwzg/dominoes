@@ -139,7 +139,7 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
 
     state.answer?.let { ans ->
         val good = state.solved == true
-        val mine = p.ranked.first { it.move == ans }
+        val mine = p.ranked.firstOrNull { it.move == ans }
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -152,7 +152,7 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
                 p.best.pros.take(3).forEach { Text("• $it") }
                 if (!good) {
                     Text("Your move: ${Strategy.describe(ans, r.board)}", fontWeight = FontWeight.Bold)
-                    whyNot(p, ans, mine).forEach { Text("• $it") }
+                    mine?.let { m -> whyNot(p, ans, m).forEach { Text("• $it") } }
                 }
                 Button(onClick = onNext, modifier = Modifier.padding(top = 4.dp)) { Text("Next puzzle") }
             }

@@ -32,6 +32,11 @@ import de.wtzg.domino.ui.theme.LocalTileFace
 private val Ivory = Color(0xFFFBF8EF)
 private val Pip = Color(0xFF263238)
 
+// The back of a tile: a fixed deep slate that stands out on every felt and on light and dark
+// screens alike (the theme colour blends into the green felt), with a brass pin like a real tile.
+private val Back = Color(0xFF1F2A36)
+private val Brass = Color(0xFFC9A54A)
+
 /** One colour per number for the coloured faces, dark enough to read on ivory. */
 private val NUMBER_COLORS = listOf(
     Color(0xFF607D8B), // 0
@@ -75,7 +80,6 @@ fun DominoTile(
 ) {
     val face = LocalTileFace.current
     val shape = RoundedCornerShape(half * 0.18f)
-    val back = MaterialTheme.colorScheme.primary
     val ring = if (highlighted) MaterialTheme.colorScheme.tertiary else Color(0xFF9E9E9E)
     Box(
         modifier
@@ -83,12 +87,16 @@ fun DominoTile(
             .alpha(if (dimmed) 0.4f else 1f)
             .shadow(elevation, shape)
             .clip(shape)
-            .background(if (faceDown) back else Ivory)
+            .background(if (faceDown) Back else Ivory)
             .border(if (highlighted) 3.dp else 1.dp, ring, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics { contentDescription = if (faceDown) "Hidden tile" else "$first-$second" },
     ) {
-        if (!faceDown) {
+        if (faceDown) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(Brass, minOf(size.width, size.height) * 0.11f)
+            }
+        } else {
             TileDivider(vertical)
             if (face == TileFace.NUMBERS) {
                 Digits(first, second, vertical, half)

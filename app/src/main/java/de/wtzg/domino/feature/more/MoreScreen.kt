@@ -37,7 +37,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +73,7 @@ fun MoreScreen(
     onResetStats: () -> Unit,
 ) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    var confirmReset by remember { mutableStateOf(false) }
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
@@ -220,7 +220,7 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
 /** The online game server. Empty uses the one built into the app, if any. */
 @Composable
 private fun ServerSetting(current: String, onSave: (String) -> Unit) {
-    var editing by remember { mutableStateOf(false) }
+    var editing by rememberSaveable { mutableStateOf(false) }
     val shown = current.ifBlank { BuildConfig.SERVER_URL.ifBlank { "Not set" } }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -230,7 +230,7 @@ private fun ServerSetting(current: String, onSave: (String) -> Unit) {
         TextButton(onClick = { editing = true }) { Text("Change") }
     }
     if (editing) {
-        var value by remember { mutableStateOf(current) }
+        var value by rememberSaveable { mutableStateOf(current) }
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text("Online server") },

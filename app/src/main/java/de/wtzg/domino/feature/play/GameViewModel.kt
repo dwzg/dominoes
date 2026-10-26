@@ -16,6 +16,7 @@ import de.wtzg.domino.engine.Round
 import de.wtzg.domino.engine.Rules
 import de.wtzg.domino.engine.Strategy
 import de.wtzg.domino.engine.Tile
+import de.wtzg.domino.ui.components.BADGE_MS
 import de.wtzg.domino.ui.components.TableBadge
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -71,6 +72,7 @@ class GameViewModel(
         settings.settings.map { it.aiSpeed }.stateIn(viewModelScope, SharingStarted.Eagerly, AiSpeed.NORMAL)
 
     private var aiJob: Job? = null
+    private var aiRuns = 0
     private var badgeId = 0L
 
     init {
@@ -194,7 +196,7 @@ class GameViewModel(
                 lastPlacedByOpponent = false,
                 handRated = rated,
                 handMatched = matched,
-                badge = if (points > 0) TableBadge(++badgeId, "+$points") else it.badge,
+                badge = if (points > 0) newBadge("+$points") else it.badge,
             )
         }
         persist()
@@ -255,17 +257,23 @@ class GameViewModel(
 
     private fun runAi() {
         aiJob?.cancel()
+        val run = ++aiRuns
         aiJob = viewModelScope.launch {
             _state.update { it.copy(aiThinking = true) }
-            while (true) {
-                val g = _state.value.game ?: break
-                val m = g.match
-                if (m.isOver || m.round.isOver || m.round.turn == YOU) break
-                // On a fresh hand, let the shuffle on screen finish before the opening play.
-                delay(aiSpeed.value.delayMs + if (m.round.board.isEmpty) SHUFFLE_MS else 0L)
-                aiTurn(g)
+            try {
+                while (true) {
+                    val g = _state.value.game ?: break
+                    val m = g.match
+                    if (m.isOver || m.round.isOver || m.round.turn == YOU) break
+                    // On a fresh hand, let the shuffle on screen finish before the opening play.
+                    delay(aiSpeed.value.delayMs + if (m.round.board.isEmpty) SHUFFLE_MS else 0L)
+                    aiTurn(g)
+                }
+            } finally {
+                // Also when something fails, so your tiles never stay locked. A run that was
+                // replaced by a newer one leaves the flag to that one.
+                if (run == aiRuns) _state.update { it.copy(aiThinking = false) }
             }
-            _state.update { it.copy(aiThinking = false) }
             val g = _state.value.game ?: return@launch
             if (g.match.isOver || g.match.round.isOver) afterTurn()
         }
@@ -294,7 +302,7 @@ class GameViewModel(
             line.append(" played ${Strategy.describe(move, r.board)}")
             if (points > 0) {
                 line.append(", scoring $points")
-                badge = TableBadge(++badgeId, "$name +$points")
+                badge = newBadge("$name +$points")
             }
             g = g.copy(match = g.match.play(move))
         } else {
@@ -313,6 +321,19 @@ class GameViewModel(
             )
         }
         persist()
+    }
+
+    /**
+     * A badge for a scoring play. It is cleared once it has shown, so it doesn't pop up (and
+     * buzz) again when you come back to the game or turn the phone.
+     */
+    private fun newBadge(text: String): TableBadge {
+        val badge = TableBadge(++badgeId, text)
+        viewModelScope.launch {
+            delay(BADGE_MS)
+            _state.update { if (it.badge?.id == badge.id) it.copy(badge = null) else it }
+        }
+        return badge
     }
 
     private fun finishHand(m: Match) {

@@ -46,9 +46,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,8 +59,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.ui.components.rememberSaveableTextList
 
 private const val NEW_ROUND = -1
+
+/** The top bar title: the target, or which round is being played. */
+fun scoreGameTitle(game: ScoreGame): String = when (game.mode) {
+    ScoreMode.FIRST_TO_TARGET -> "First to ${game.limit}"
+    // All rounds are played but the lowest total is shared, so one more round decides.
+    ScoreMode.LOWEST_AFTER_ROUNDS -> if (game.rounds.size >= game.limit && !game.isFinished) {
+        "Tie-break round"
+    } else {
+        "Round ${minOf(game.rounds.size + 1, game.limit)} of ${game.limit}"
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -76,9 +87,9 @@ fun ScoreGameScreen(
     onShowHistory: () -> Unit,
 ) {
     // null = no dialog, NEW_ROUND = adding, otherwise index of the round being edited
-    var editing by remember { mutableStateOf<Int?>(null) }
-    var menuOpen by remember { mutableStateOf(false) }
-    var confirmNewGame by remember { mutableStateOf(false) }
+    var editing by rememberSaveable { mutableStateOf<Int?>(null) }
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var confirmNewGame by rememberSaveable { mutableStateOf(false) }
     val totals = game.totals
     val winner = game.winnerIndex
     // Who starts the round being played; nobody once the game is over.
@@ -87,15 +98,7 @@ fun ScoreGameScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        when (game.mode) {
-                            ScoreMode.FIRST_TO_TARGET -> "First to ${game.limit}"
-                            ScoreMode.LOWEST_AFTER_ROUNDS ->
-                                "Round ${minOf(game.rounds.size + 1, game.limit)} of ${game.limit}"
-                        }
-                    )
-                },
+                title = { Text(scoreGameTitle(game)) },
                 actions = {
                     IconButton(onClick = onShowHistory) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Past games")
@@ -383,10 +386,8 @@ private fun RoundDialog(
     onSave: (List<Int>) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    val inputs = remember {
-        mutableStateListOf<String>().apply {
-            addAll(players.indices.map { i -> initial?.getOrNull(i)?.takeIf { it != 0 }?.toString() ?: "" })
-        }
+    val inputs = rememberSaveableTextList {
+        players.indices.map { i -> initial?.getOrNull(i)?.takeIf { it != 0 }?.toString() ?: "" }
     }
     AlertDialog(
         onDismissRequest = onDismiss,

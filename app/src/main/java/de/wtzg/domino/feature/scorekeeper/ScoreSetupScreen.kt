@@ -35,9 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +45,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.ui.components.rememberSaveableTextList
 
 private const val MIN_PLAYERS = 2
 private const val MAX_PLAYERS = 6
@@ -60,11 +59,9 @@ fun ScoreSetupScreen(
     onStart: (players: List<String>, mode: ScoreMode, limit: Int, firstStarter: Int, rotateStarter: Boolean) -> Unit,
     onShowHistory: () -> Unit,
 ) {
-    val names = remember {
-        mutableStateListOf<String>().apply {
-            addAll(initialPlayers.ifEmpty { listOf("", "") }.take(MAX_PLAYERS))
-            while (size < MIN_PLAYERS) add("")
-        }
+    val names = rememberSaveableTextList {
+        val start = initialPlayers.ifEmpty { listOf("", "") }.take(MAX_PLAYERS)
+        start + List((MIN_PLAYERS - start.size).coerceAtLeast(0)) { "" }
     }
     var mode by rememberSaveable { mutableStateOf(ScoreMode.FIRST_TO_TARGET) }
     var targetText by rememberSaveable { mutableStateOf("100") }

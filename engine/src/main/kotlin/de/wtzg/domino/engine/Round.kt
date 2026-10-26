@@ -1,7 +1,12 @@
 package de.wtzg.domino.engine
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.random.Random
+
+// The serializable engine types (Board, Rules, Move, Tile, Link, HandResult, Match, Round,
+// Event…) are stored by the server, sent over the network and kept in the app's saved games.
+// Renaming or removing a property, or adding one without a default, breaks the protocol and old saves.
 
 /**
  * How a hand ended. [winner] (null on a tied block) collects [endPoints], already
@@ -15,18 +20,24 @@ data class HandResult(
     val pipsLeft: List<Int>,
 )
 
-/** Something that happened in a hand, for messages and the coach. */
+/**
+ * Something that happened in a hand, for messages and the coach. The serial names are
+ * pinned to what's already stored, so renaming or moving a class can't break saved games.
+ */
 @Serializable
 sealed interface Event {
     val player: Int
 
     @Serializable
+    @SerialName("de.wtzg.domino.engine.Event.Played")
     data class Played(override val player: Int, val move: Move, val points: Int, val endCount: Int) : Event
 
     @Serializable
+    @SerialName("de.wtzg.domino.engine.Event.Drew")
     data class Drew(override val player: Int, val tile: Tile, val ends: List<Int>) : Event
 
     @Serializable
+    @SerialName("de.wtzg.domino.engine.Event.Passed")
     data class Passed(override val player: Int, val ends: List<Int>) : Event
 }
 

@@ -7,6 +7,7 @@ import de.wtzg.domino.engine.Rules
 import de.wtzg.domino.engine.Strategy
 import de.wtzg.domino.protocol.Action
 import de.wtzg.domino.protocol.CreateGameRequest
+import de.wtzg.domino.protocol.Friend
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
@@ -30,15 +31,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 import kotlin.random.asKotlinRandom
 
-/** An error the client caused, with the HTTP status to answer with. */
-class ApiException(val status: Int, message: String) : RuntimeException(message)
-
-private fun badRequest(msg: String): Nothing = throw ApiException(400, msg)
-private fun forbidden(msg: String): Nothing = throw ApiException(403, msg)
-private fun notFound(msg: String): Nothing = throw ApiException(404, msg)
-private fun conflict(msg: String): Nothing = throw ApiException(409, msg)
-private fun updateApp(msg: String): Nothing = throw ApiException(426, msg)
-
 /** Refuses games an app speaking [protocol] can't show (e.g. a newer game mode). */
 private fun GameRecord.requireProtocol(protocol: Int) {
     if (rules.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
@@ -50,7 +42,6 @@ private val AI_NAMES = listOf("Rosa", "Hank", "Mabel", "Otis")
 const val OPEN_GAME_MAX_AGE_MS = 24L * 60 * 60 * 1000
 private const val OPEN_GAMES_SHOWN = 50
 private const val OPEN_GAMES_SCAN = 200
-private const val CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O or 1/I mix-ups
 
 fun hashToken(token: String): String =
     MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -65,6 +56,9 @@ class GameService(
     private val random: Random = SecureRandom().asKotlinRandom(),
 ) {
     private val secure = SecureRandom()
+
+    /** Friend codes, requests and invites. */
+    val friends = FriendService(store, clock, secure)
     private val locks = ConcurrentHashMap<String, Mutex>()
 
     private suspend fun <T> withGame(id: String, block: (GameRecord) -> T): T =
@@ -112,8 +106,9 @@ class GameService(
         }
     }
 
-    fun create(host: PlayerRecord, req: CreateGameRequest): GameRecord {
+    fun create(host: PlayerRecord, req: CreateGameRequest, protocol: Int): GameRecord {
         checkTable(req.players, req.target, req.turnLimitSeconds)
+        if (req.mode.sinceProtocol > protocol) updateApp("This game needs a newer version of the app. Please update it.")
         if (req.visibility == Visibility.PUBLIC) checkOpenGamesOf(host)
         val now = clock()
         val g = GameRecord(
@@ -136,7 +131,7 @@ class GameService(
      * The host changes the game before it starts. Everyone already seated keeps a seat:
      * the table can't shrink below them, and when it shrinks they move up to fill the gaps.
      */
-    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int = 1): GameRecord = withGame(id) { g ->
+    suspend fun updateSettings(player: PlayerRecord, id: String, req: SettingsRequest, protocol: Int): GameRecord = withGame(id) { g ->
         if (g.seatOf(player.id) != g.hostSeat) forbidden("Only the host can change the game")
         if (g.status != GameStatus.LOBBY) conflict("The game has already started")
         checkTable(req.players, req.target, req.turnLimitSeconds)
@@ -167,7 +162,7 @@ class GameService(
      * A new lobby with the same settings after a finished game. The first player to ask sets
      * it up and hosts it; everyone after joins that same lobby.
      */
-    suspend fun rematch(player: PlayerRecord, id: String, protocol: Int = 1): GameRecord {
+    suspend fun rematch(player: PlayerRecord, id: String, protocol: Int): GameRecord {
         val (lobbyId, code) = withGame(id) { g ->
             if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
             if (g.status != GameStatus.FINISHED) conflict("The game isn't over yet")
@@ -222,7 +217,7 @@ class GameService(
      * Public lobbies [player] could join: not their own, with a free seat, in a mode their app
      * knows, and touched in the last [OPEN_GAME_MAX_AGE_MS] so abandoned lobbies drop off.
      */
-    fun openGames(player: PlayerRecord, protocol: Int = 1): List<OpenGame> {
+    fun openGames(player: PlayerRecord, protocol: Int): List<OpenGame> {
         val since = clock() - OPEN_GAME_MAX_AGE_MS
         return store.openGames(OPEN_GAMES_SCAN)
             .filter { it.updatedAt >= since && it.seatOf(player.id) < 0 && it.rules.mode.sinceProtocol <= protocol }
@@ -243,21 +238,16 @@ class GameService(
             }
     }
 
-    private fun newCode(): String {
-        repeat(20) {
-            val code = (1..Limits.CODE_LENGTH).map { CODE_ALPHABET[secure.nextInt(CODE_ALPHABET.length)] }.joinToString("")
-            if (store.gameByCode(code) == null) return code
-        }
-        error("Couldn't find a free game code")
-    }
+    private fun newCode(): String = secure.freeCode(Limits.CODE_LENGTH) { store.gameByCode(it) != null }
 
-    suspend fun join(player: PlayerRecord, code: String, protocol: Int = 1): GameRecord {
+    suspend fun join(player: PlayerRecord, code: String, protocol: Int): GameRecord {
         val g0 = store.gameByCode(code.trim().uppercase()) ?: notFound("No game with that code")
         g0.requireProtocol(protocol)
         return withGame(g0.id) { g ->
             if (g.seatOf(player.id) >= 0) return@withGame g
             if (g.status != GameStatus.LOBBY) conflict("That game has already started")
             val free = g.seats.indexOfFirst { it.isFree }.takeIf { it >= 0 } ?: conflict("That game is full")
+            store.removeInvite(g.id, player.id)
             save(g.copy(seats = g.seats.toMutableList().also { it[free] = SeatRecord(player.id, player.name) }))
         }
     }
@@ -272,7 +262,21 @@ class GameService(
                 SeatRecord(null, name, difficulty)
             }
         }
+        store.invitesFor(g.id).forEach { store.removeInvite(g.id, it.toId) }
         save(runComputers(g.copy(seats = seats, status = GameStatus.PLAYING, match = Match.start(g.rules, random))))
+    }
+
+    /** Invites friends to a lobby you're in. People already at the table are skipped. */
+    suspend fun invite(player: PlayerRecord, id: String, playerIds: List<String>): GameRecord = withGame(id) { g ->
+        if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
+        if (g.status != GameStatus.LOBBY) conflict("The game has already started")
+        if (g.seats.none { it.isFree }) conflict("The table is full")
+        val ids = playerIds.distinct()
+        if (ids.isEmpty() || ids.size > g.seats.size) badRequest("Invite 1 to ${g.seats.size} friends")
+        val friends = store.friendsOf(player.id).toSet()
+        if (ids.any { it !in friends }) forbidden("You can only invite friends")
+        ids.filter { g.seatOf(it) < 0 }.forEach { store.addInvite(InviteRecord(g.id, it, player.id, clock())) }
+        g
     }
 
     // --- Play --------------------------------------------------------------------------------
@@ -298,6 +302,7 @@ class GameService(
         GameStatus.LOBBY ->
             if (seat == g.hostSeat) {
                 store.deleteGame(g.id)
+                locks.remove(g.id)
                 null
             } else {
                 save(g.copy(seats = g.seats.toMutableList().also { it[seat] = SeatRecord() }))
@@ -358,7 +363,7 @@ class GameService(
 
     // --- Views -------------------------------------------------------------------------------
 
-    fun game(player: PlayerRecord, id: String, protocol: Int = 1): GameRecord {
+    fun game(player: PlayerRecord, id: String, protocol: Int): GameRecord {
         val g = store.game(id) ?: notFound("No such game")
         if (g.seatOf(player.id) < 0) forbidden("You're not at this table")
         g.requireProtocol(protocol)
@@ -366,7 +371,7 @@ class GameService(
     }
 
     /** Your games, leaving out any an app speaking [protocol] couldn't show. */
-    fun gamesOf(player: PlayerRecord, protocol: Int = 1): List<GameSummary> = store.gamesOf(player.id)
+    fun gamesOf(player: PlayerRecord, protocol: Int): List<GameSummary> = store.gamesOf(player.id)
         .filter { it.rules.mode.sinceProtocol <= protocol }
         .map { g ->
         GameSummary(
@@ -388,7 +393,7 @@ class GameService(
     }.sortedWith(compareByDescending<GameSummary> { it.isYourTurn }.thenByDescending { it.updatedAt })
 
     /** The game as [playerId] may see it, in a form an app speaking [protocol] understands. */
-    fun view(g: GameRecord, playerId: String, online: Set<String> = emptySet(), protocol: Int = 1): GameView {
+    fun view(g: GameRecord, playerId: String, online: Set<String>, protocol: Int): GameView {
         val you = g.seatOf(playerId)
         val m = g.match
         val r = m?.round
@@ -429,6 +434,10 @@ class GameService(
             timedOut = g.timedOut,
             leftSeat = g.leftSeat,
             rematchId = g.rematchId,
+            invited = if (g.status != GameStatus.LOBBY) emptyList() else {
+                store.invitesFor(g.id).map { it.toId }.filter { g.seatOf(it) < 0 }
+                    .mapNotNull { id -> store.player(id)?.let { Friend(it.id, it.name) } }
+            },
         )
     }
 

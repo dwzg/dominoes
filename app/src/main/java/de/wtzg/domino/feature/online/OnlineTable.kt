@@ -1,11 +1,11 @@
 package de.wtzg.domino.feature.online
 
 import de.wtzg.domino.engine.Board
-import de.wtzg.domino.feature.play.GameViewModel
 import de.wtzg.domino.feature.play.OverlayUi
 import de.wtzg.domino.feature.play.ResultLine
 import de.wtzg.domino.feature.play.SeatUi
 import de.wtzg.domino.feature.play.TableUi
+import de.wtzg.domino.feature.play.numbersText
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
@@ -163,14 +163,14 @@ private fun GameView.recentLog(): List<String> {
             }
             is PublicEvent.Played -> {
                 val line = StringBuilder(name)
-                if (drawn > 0) line.append(" drew $drawn (no ${GameViewModel.numbers(drawnEnds)}) and")
+                if (drawn > 0) line.append(" drew $drawn (no ${numbersText(drawnEnds)}) and")
                 line.append(" played ${describe(e, board)}")
                 if (e.points > 0) line.append(", scoring ${e.points}")
                 lines += line.append('.').toString()
                 drawn = 0
             }
             is PublicEvent.Passed -> {
-                lines += "$name passed (no ${GameViewModel.numbers(e.ends)})."
+                lines += "$name passed (no ${numbersText(e.ends)})."
                 drawn = 0
             }
         }

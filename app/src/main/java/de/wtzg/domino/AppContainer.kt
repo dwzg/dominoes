@@ -6,10 +6,10 @@ import de.wtzg.domino.data.ScoreKeeperRepository
 import de.wtzg.domino.data.SettingsRepository
 import de.wtzg.domino.data.StatsRepository
 import de.wtzg.domino.data.appStore
+import de.wtzg.domino.data.local.LocalHost
 import de.wtzg.domino.data.online.OnlineRepository
 import de.wtzg.domino.data.online.onlineHttpClient
 import de.wtzg.domino.data.scoreKeeperStore
-import de.wtzg.domino.data.local.LocalHost
 import io.ktor.client.engine.cio.CIO
 import kotlinx.coroutines.flow.MutableStateFlow
 

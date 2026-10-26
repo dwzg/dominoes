@@ -30,6 +30,22 @@ data class LocalState(
     val invite: LocalInvite? = null,
 )
 
+/** What the same-Wi-Fi screen can ask for. */
+interface LocalActions {
+    fun setName(name: String)
+
+    /** Starts hosting on this phone (if it isn't already) and goes on to set up a game. */
+    fun host()
+
+    /** Joins a game hosted on another phone on the same Wi-Fi. */
+    fun join(invite: LocalInvite)
+    fun stopHosting()
+    fun created()
+    fun opened()
+    fun dismissError()
+    fun showError(message: String)
+}
+
 /**
  * Same-Wi-Fi games: host one on this phone, or join one hosted on another. Either way the
  * game itself runs like an online game, through [repo] pointed at the hosting phone.
@@ -41,7 +57,7 @@ class LocalViewModel(
     private val settings: SettingsRepository,
     /** A friend's hosted game to join straight away, from an invite link. */
     private val invite: LocalInvite? = null,
-) : ViewModel() {
+) : ViewModel(), LocalActions {
     private val _state = MutableStateFlow(LocalState())
     val state: StateFlow<LocalState> = _state.asStateFlow()
 
@@ -56,17 +72,15 @@ class LocalViewModel(
         viewModelScope.launch { host.url.collect { url -> _state.update { it.copy(hosting = url) } } }
     }
 
-    fun setName(name: String) = _state.update { it.copy(name = name.take(Limits.NAME_MAX)) }
+    override fun setName(name: String) = _state.update { it.copy(name = name.take(Limits.NAME_MAX)) }
 
-    /** Starts hosting on this phone (if it isn't already) and goes on to set up a game. */
-    fun host() = withName { name ->
+    override fun host() = withName { name ->
         val url = host.start()
         signIn(url, name)
         _state.update { it.copy(create = true) }
     }
 
-    /** Joins a game hosted on another phone on the same Wi-Fi. */
-    fun join(invite: LocalInvite) = withName { name -> join(name, invite) }
+    override fun join(invite: LocalInvite) = withName { name -> join(name, invite) }
 
     private suspend fun join(name: String, invite: LocalInvite) {
         signIn(invite.server, name)
@@ -74,27 +88,26 @@ class LocalViewModel(
         _state.update { it.copy(open = v.id, invite = null) }
     }
 
-    fun stopHosting() = withName(needsName = false) {
+    override fun stopHosting() = withName(needsName = false) {
         val url = host.url.value
         host.stop()
         if (server.value == url) server.value = ""
     }
 
-    fun created() = _state.update { it.copy(create = false) }
-    fun opened() = _state.update { it.copy(open = null) }
-    fun dismissError() = _state.update { it.copy(error = null) }
-    fun showError(message: String) = _state.update { it.copy(error = message) }
+    override fun created() = _state.update { it.copy(create = false) }
+    override fun opened() = _state.update { it.copy(open = null) }
+    override fun dismissError() = _state.update { it.copy(error = null) }
+    override fun showError(message: String) = _state.update { it.copy(error = message) }
 
-    /** Talks to [url] from now on, with a player of [name] on it (registered once per address). */
+    /**
+     * Talks to [url] from now on, as [name]. Each hosting starts with no players, so an
+     * identity saved from an earlier game at the same address is replaced as needed.
+     */
     private suspend fun signIn(url: String, name: String) {
         server.value = url
         settings.update { it.copy(playerName = name) }
-        val account = repo.account.first { it.serverUrl == url }
-        if (account.registration == null) {
-            repo.register(name)
-        } else if (account.registration.name != name) {
-            repo.rename(name)
-        }
+        repo.account.first { it.serverUrl == url }
+        repo.signIn(name)
     }
 
     /** Runs [block] with your name, one action at a time, showing what went wrong if it fails. */

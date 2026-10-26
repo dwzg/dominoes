@@ -48,8 +48,8 @@ class TurnLimitsAndRematchTest {
     private fun startedGame(limit: Int): Triple<PlayerRecord, PlayerRecord, GameRecord> = runBlocking {
         val ann = player("Ann")
         val bob = player("Bob")
-        val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = limit))
-        service.join(bob, g.code)
+        val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = limit), 1)
+        service.join(bob, g.code, 1)
         Triple(ann, bob, service.start(ann, g.id, de.wtzg.domino.engine.Difficulty.EASY))
     }
 
@@ -66,22 +66,22 @@ class TurnLimitsAndRematchTest {
     fun runningOutOfTimeEndsTheGameWithNoWinner() = runBlocking {
         val (ann, _, g) = startedGame(limit = 60)
         val toMove = g.match!!.round.turn
-        assertEquals(60_000L, service.view(g, ann.id).turnEndsInMs)
+        assertEquals(60_000L, service.view(g, ann.id, emptySet(), 1).turnEndsInMs)
 
         now += 59_000
         assertTrue("still in time", service.expireOverdueTurns().isEmpty())
-        assertEquals(1_000L, service.view(store.game(g.id)!!, ann.id).turnEndsInMs)
+        assertEquals(1_000L, service.view(store.game(g.id)!!, ann.id, emptySet(), 1).turnEndsInMs)
 
         now += 2_000
         assertEquals(listOf(g.id), service.expireOverdueTurns())
         val ended = store.game(g.id)!!
         assertEquals(GameStatus.FINISHED, ended.status)
         assertEquals(toMove, ended.timedOut)
-        val v = service.view(ended, ann.id)
+        val v = service.view(ended, ann.id, emptySet(), 1)
         assertEquals(toMove, v.timedOut)
         assertNull("nobody wins", v.winner)
         assertNull("no clock on a finished game", v.turnEndsInMs)
-        assertEquals(toMove, service.gamesOf(ann).single().timedOut)
+        assertEquals(toMove, service.gamesOf(ann, 1).single().timedOut)
         assertTrue("only once", service.expireOverdueTurns().isEmpty())
     }
 
@@ -104,7 +104,7 @@ class TurnLimitsAndRematchTest {
     @Test
     fun noLimitMeansNoClock() = runBlocking {
         val (ann, _, g) = startedGame(limit = TurnLimits.NONE)
-        assertNull(service.view(g, ann.id).turnEndsInMs)
+        assertNull(service.view(g, ann.id, emptySet(), 1).turnEndsInMs)
         now += 365L * 24 * 60 * 60 * 1000
         assertTrue(service.expireOverdueTurns().isEmpty())
     }
@@ -112,55 +112,55 @@ class TurnLimitsAndRematchTest {
     @Test
     fun turnLimitsAndTargetsAreChecked() {
         val ann = player("Ann")
-        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = 5)) }
-        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = 31 * TurnLimits.DAY)) }
-        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, Limits.TARGET_MAX + 1, Pace.LIVE)) }
+        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = 5), 1) }
+        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, turnLimitSeconds = 31 * TurnLimits.DAY), 1) }
+        expectApiError(400) { service.create(ann, CreateGameRequest(GameMode.DRAW, 2, Limits.TARGET_MAX + 1, Pace.LIVE), 1) }
         // Any target in range works, not just the presets.
-        val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 137, Pace.TURN_BASED, turnLimitSeconds = 2 * TurnLimits.DAY))
+        val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 137, Pace.TURN_BASED, turnLimitSeconds = 2 * TurnLimits.DAY), 1)
         assertEquals(137, g.rules.target)
         runBlocking {
-            val changed = service.updateSettings(ann, g.id, SettingsRequest(GameMode.ALL_FIVES, 2, 245, Pace.LIVE, turnLimitSeconds = 30))
+            val changed = service.updateSettings(ann, g.id, SettingsRequest(GameMode.ALL_FIVES, 2, 245, Pace.LIVE, turnLimitSeconds = 30), 1)
             assertEquals(245, changed.rules.target)
             assertEquals(30, changed.turnLimitSeconds)
         }
-        expectApiError(400) { service.updateSettings(ann, g.id, SettingsRequest(GameMode.ALL_FIVES, 2, 100, Pace.LIVE, turnLimitSeconds = 1)) }
+        expectApiError(400) { service.updateSettings(ann, g.id, SettingsRequest(GameMode.ALL_FIVES, 2, 100, Pace.LIVE, turnLimitSeconds = 1), 1) }
     }
 
     @Test
     fun onePlayerCanListOnlyAFewOpenGames() {
         val ann = player("Ann")
-        fun open() = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, Visibility.PUBLIC))
+        fun open() = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, Visibility.PUBLIC), 1)
         val first = open()
         repeat(Limits.OPEN_GAMES_PER_HOST - 1) { open() }
         expectApiError(409) { open() }
         // Private games are never limited; listing one is.
-        val private = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE))
+        val private = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE), 1)
         expectApiError(409) { service.setVisibility(ann, private.id, Visibility.PUBLIC) }
         // Once one fills up, there's room again.
-        runBlocking { service.join(player("Bob"), first.code) }
+        runBlocking { service.join(player("Bob"), first.code, 1) }
         open()
     }
 
     @Test
     fun everyoneLandsInTheSameRematch() = runBlocking {
         val (ann, bob, g) = startedGame(limit = 60)
-        expectApiError(409) { service.rematch(ann, g.id) }
+        expectApiError(409) { service.rematch(ann, g.id, 1) }
         now += 61_000
         service.expireOverdueTurns()
 
-        val lobby = service.rematch(bob, g.id)
+        val lobby = service.rematch(bob, g.id, 1)
         assertEquals(GameStatus.LOBBY, lobby.status)
         assertEquals(bob.id, lobby.seats[lobby.hostSeat].playerId)
         assertEquals(g.rules, lobby.rules)
         assertEquals(60, lobby.turnLimitSeconds)
-        assertEquals(lobby.id, service.view(store.game(g.id)!!, ann.id).rematchId)
+        assertEquals(lobby.id, service.view(store.game(g.id)!!, ann.id, emptySet(), 1).rematchId)
 
-        val joined = service.rematch(ann, g.id)
+        val joined = service.rematch(ann, g.id, 1)
         assertEquals(lobby.id, joined.id)
         assertEquals(listOf(bob.id, ann.id), joined.playerIds)
-        assertEquals("asking again changes nothing", lobby.id, service.rematch(ann, g.id).id)
+        assertEquals("asking again changes nothing", lobby.id, service.rematch(ann, g.id, 1).id)
 
-        expectApiError(403) { service.rematch(player("Cat"), g.id) }
+        expectApiError(403) { service.rematch(player("Cat"), g.id, 1) }
     }
 
     @Test
@@ -168,9 +168,9 @@ class TurnLimitsAndRematchTest {
         val (ann, bob, g) = startedGame(limit = 60)
         now += 61_000
         service.expireOverdueTurns()
-        val first = service.rematch(ann, g.id)
+        val first = service.rematch(ann, g.id, 1)
         service.act(ann, first.id, de.wtzg.domino.protocol.Action.Leave, first.version) // host cancels
-        val second = service.rematch(bob, g.id)
+        val second = service.rematch(bob, g.id, 1)
         assertTrue(second.id != first.id)
         assertEquals(bob.id, second.seats[0].playerId)
     }
@@ -182,8 +182,8 @@ class TurnLimitsAndRematchTest {
             val sql = GameService(SqliteStore(file.path), clock = { now }, random = Random(12))
             val ann = sql.authenticate(sql.register("Ann").token)!!
             val bob = sql.authenticate(sql.register("Bob").token)!!
-            val g = sql.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, turnLimitSeconds = TurnLimits.DAY))
-            runBlocking { sql.join(bob, g.code); sql.start(ann, g.id, de.wtzg.domino.engine.Difficulty.EASY) }
+            val g = sql.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, turnLimitSeconds = TurnLimits.DAY), 1)
+            runBlocking { sql.join(bob, g.code, 1); sql.start(ann, g.id, de.wtzg.domino.engine.Difficulty.EASY) }
             assertTrue(SqliteStore(file.path).overdueGames(now).isEmpty())
             now += TurnLimits.DAY * 1000L + 1
             assertEquals(listOf(g.id), SqliteStore(file.path).overdueGames(now))

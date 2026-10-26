@@ -25,7 +25,7 @@ class RulesTest {
     }
 
     @Test
-    fun redDeadTargetsAreDefaults() {
+    fun defaultTargets() {
         assertEquals(listOf(60, 60, 100, 90), GameMode.entries.map { Rules(it).target })
     }
 

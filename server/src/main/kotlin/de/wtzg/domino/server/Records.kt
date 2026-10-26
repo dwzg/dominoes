@@ -12,6 +12,9 @@ import kotlinx.serialization.Serializable
 /** A registered player. Only a hash of their token is stored. */
 data class PlayerRecord(val id: String, val name: String, val tokenHash: String, val createdAt: Long)
 
+/** A friend invited [toId] to the lobby [gameId]. */
+data class InviteRecord(val gameId: String, val toId: String, val fromId: String, val sentAt: Long)
+
 /** A seat: a person ([playerId]), a computer ([ai]), or still free (both null). */
 @Serializable
 data class SeatRecord(val playerId: String? = null, val name: String = "", val ai: Difficulty? = null) {

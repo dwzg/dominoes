@@ -33,17 +33,16 @@ class ScoreKeeperViewModel(
         rotateStarter: Boolean = false,
     ) = viewModelScope.launch {
         repo.saveLastPlayers(players)
-        commit(
-            ScoreGame(
-                id = clock(),
-                players = players,
-                mode = mode,
-                limit = limit,
-                startedAt = clock(),
-                firstStarter = firstStarter.coerceIn(0, players.lastIndex),
-                rotateStarter = rotateStarter,
-            ),
+        val game = ScoreGame(
+            id = clock(),
+            players = players,
+            mode = mode,
+            limit = limit,
+            startedAt = clock(),
+            firstStarter = firstStarter.coerceIn(0, players.lastIndex),
+            rotateStarter = rotateStarter,
         )
+        repo.updateCurrent { stamped(game) }
     }
 
     fun rematch() {
@@ -52,28 +51,23 @@ class ScoreKeeperViewModel(
     }
 
     fun addRound(scores: List<Int>) = edit { it.addRound(scores) }
-    fun updateRound(index: Int, scores: List<Int>) = edit { it.updateRound(index, scores) }
-    fun deleteRound(index: Int) = edit { it.deleteRound(index) }
+    // The index comes from the screen, which can be a change behind; ignore rounds that are gone.
+    fun updateRound(index: Int, scores: List<Int>) = edit { if (index in it.rounds.indices) it.updateRound(index, scores) else it }
+    fun deleteRound(index: Int) = edit { if (index in it.rounds.indices) it.deleteRound(index) else it }
     fun undoLastRound() = edit { if (it.rounds.isEmpty()) it else it.deleteRound(it.rounds.lastIndex) }
 
     /** Leaves the current game. Finished games stay in the history. */
     fun closeGame() = viewModelScope.launch { repo.saveCurrent(null) }
 
-    fun deleteFromHistory(id: Long) = viewModelScope.launch { repo.saveHistory(state.value.history.filterNot { it.id == id }) }
+    fun deleteFromHistory(id: Long) = viewModelScope.launch { repo.updateHistory { h -> h.filterNot { it.id == id } } }
     fun clearHistory() = viewModelScope.launch { repo.saveHistory(emptyList()) }
 
+    /** Applies [change] to the stored game, not to [state], which may not have caught up with the last change yet. */
     private fun edit(change: (ScoreGame) -> ScoreGame) {
-        val g = state.value.current ?: return
-        viewModelScope.launch { commit(change(g)) }
+        viewModelScope.launch { repo.updateCurrent { g -> g?.let { stamped(change(it)) } } }
     }
 
-    private suspend fun commit(game: ScoreGame) {
-        // A game is listed in the history exactly while it is finished,
-        // so undoing the winning round takes it out again.
-        val updated = if (game.isFinished) game.copy(finishedAt = game.finishedAt ?: clock()) else game.copy(finishedAt = null)
-        repo.saveCurrent(updated)
-        val others = state.value.history.filterNot { it.id == updated.id }
-        val history = if (updated.isFinished) listOf(updated) + others else others
-        repo.saveHistory(history.sortedByDescending { it.finishedAt ?: it.startedAt })
-    }
+    /** Notes when the game was won, or clears it again when the winning round is undone. */
+    private fun stamped(game: ScoreGame): ScoreGame =
+        if (game.isFinished) game.copy(finishedAt = game.finishedAt ?: clock()) else game.copy(finishedAt = null)
 }

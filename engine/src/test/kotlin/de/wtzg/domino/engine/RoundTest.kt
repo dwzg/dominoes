@@ -1,5 +1,7 @@
 package de.wtzg.domino.engine
 
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -87,13 +89,50 @@ class RoundTest {
     fun fivesScoresDuringPlayAndRoundsTheEnd() {
         var r = round(
             GameMode.ALL_FIVES,
-            listOf(listOf(t(5, 0), t(6, 6)), listOf(t(2, 1), t(4, 4))),
+            listOf(listOf(t(5, 0), t(2, 0)), listOf(t(2, 1), t(4, 4))),
             Board(spinnerAllowed = true).play(Move(t(5, 5), Arm.EAST)),
         )
         r = r.play(Move(t(5, 0), Arm.EAST)) // 10 (untouched 5|5) + 0 = 10
         assertEquals(listOf(10, 0), r.points)
         assertTrue(r.events.last() is Event.Played)
         assertEquals(10, (r.events.last() as Event.Played).points)
+        r = r.pass().play(Move(t(2, 0), Arm.EAST)) // 10 + 2 = 12, no points; player 0 is out
+        assertEquals(listOf(10, 0), r.points)
+        assertEquals(HandResult(0, 10, false, listOf(0, 11)), r.result) // 11 left, rounded to 10
+    }
+
+    @Test
+    fun blockedTieHasNoWinner() {
+        val r = round(
+            GameMode.DRAW,
+            listOf(listOf(t(2, 1)), listOf(t(3, 0))),
+            Board().play(Move(t(6, 5), Arm.EAST)),
+        ).pass().pass()
+        assertEquals(HandResult(null, 0, true, listOf(3, 3)), r.result)
+    }
+
+    @Test
+    fun blockedHandPointsAreRoundedInFives() {
+        val r = round(
+            GameMode.ALL_FIVES,
+            listOf(listOf(t(2, 1)), listOf(t(4, 4), t(3, 1))),
+            Board(spinnerAllowed = true).play(Move(t(5, 5), Arm.EAST)),
+        ).pass().pass()
+        assertEquals(HandResult(0, 10, true, listOf(3, 12)), r.result) // 12 rounds to 10
+    }
+
+    @Test
+    fun eventsKeepTheirStoredTypeNames() {
+        // Saved games and server records hold these names; they must never change.
+        val events = listOf(
+            Event.Played(0, Move(t(5, 5), Arm.EAST), 10, 10),
+            Event.Drew(1, t(6, 6), listOf(5)),
+            Event.Passed(1, listOf(5)),
+        )
+        val json = Json.encodeToString(ListSerializer(Event.serializer()), events)
+        for (name in listOf("Played", "Drew", "Passed")) {
+            assertTrue(json, json.contains("\"type\":\"de.wtzg.domino.engine.Event.$name\""))
+        }
     }
 
     @Test

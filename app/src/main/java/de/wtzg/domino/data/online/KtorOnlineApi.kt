@@ -1,28 +1,33 @@
 package de.wtzg.domino.data.online
 
+import de.wtzg.domino.BuildConfig
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.protocol.Action
 import de.wtzg.domino.protocol.ActionRequest
+import de.wtzg.domino.protocol.AddFriendRequest
 import de.wtzg.domino.protocol.ApiError
 import de.wtzg.domino.protocol.CreateGameRequest
+import de.wtzg.domino.protocol.FriendsView
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.GameView
+import de.wtzg.domino.protocol.InviteRequest
 import de.wtzg.domino.protocol.JoinRequest
 import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.ProtocolJson
-import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.ProtocolVersion
+import de.wtzg.domino.protocol.RegisterRequest
 import de.wtzg.domino.protocol.Registration
+import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.ServerInfo
 import de.wtzg.domino.protocol.SettingsRequest
-import io.ktor.client.request.header
-import io.ktor.http.HttpHeaders
-import de.wtzg.domino.protocol.RenameRequest
 import de.wtzg.domino.protocol.StartRequest
 import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.VisibilityRequest
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
@@ -31,11 +36,13 @@ import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
@@ -45,21 +52,21 @@ import io.ktor.http.takeFrom
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import java.io.IOException
+import kotlinx.coroutines.flow.channelFlow
 
 /**
  * Builds the HTTP client used for the game server. Every request says which protocol
  * this app speaks, so the server can stay compatible with it.
  */
 fun onlineHttpClient(
-    engine: io.ktor.client.engine.HttpClientEngine? = null,
-    appVersion: String = de.wtzg.domino.BuildConfig.VERSION_NAME,
+    engine: HttpClientEngine? = null,
+    appVersion: String = BuildConfig.VERSION_NAME,
 ): HttpClient {
-    val config: io.ktor.client.HttpClientConfig<*>.() -> Unit = {
+    val config: HttpClientConfig<*>.() -> Unit = {
         defaultRequest {
             header(ProtocolVersion.HEADER, ProtocolVersion.CURRENT.toString())
             header(HttpHeaders.UserAgent, "Dominoes/$appVersion")
@@ -72,7 +79,7 @@ fun onlineHttpClient(
         }
         expectSuccess = false
     }
-    return if (engine != null) HttpClient(engine, config) else HttpClient(io.ktor.client.engine.okhttp.OkHttp, config)
+    return if (engine != null) HttpClient(engine, config) else HttpClient(OkHttp, config)
 }
 
 /**
@@ -98,7 +105,14 @@ class KtorOnlineApi(
             val msg = runCatching { response.body<ApiError>().message }.getOrNull() ?: "Server error ${response.status.value}"
             throw OnlineException(msg, response.status.value)
         }
-        return response.body()
+        return try {
+            response.body()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // E.g. a web page from a proxy instead of the game server.
+            throw OnlineException("The server sent something this app can't read. Check the server address.")
+        }
     }
 
     private fun HttpRequestBuilder.endpoint(path: String) {
@@ -148,6 +162,23 @@ class KtorOnlineApi(
     override suspend fun setVisibility(id: String, visibility: Visibility): GameView =
         call { client.post { endpoint("/games/$id/visibility"); jsonBody(VisibilityRequest(visibility)) } }
 
+    override suspend fun friends(): FriendsView = call { client.get { endpoint("/friends") } }
+
+    override suspend fun addFriend(code: String): FriendsView =
+        call { client.post { endpoint("/friends"); jsonBody(AddFriendRequest(code = code)) } }
+
+    override suspend fun addFriendById(playerId: String): FriendsView =
+        call { client.post { endpoint("/friends"); jsonBody(AddFriendRequest(playerId = playerId)) } }
+
+    override suspend fun acceptFriend(playerId: String): FriendsView = call { client.post { endpoint("/friends/$playerId/accept") } }
+
+    override suspend fun removeFriend(playerId: String): FriendsView = call { client.post { endpoint("/friends/$playerId/remove") } }
+
+    override suspend fun invite(gameId: String, playerIds: List<String>): GameView =
+        call { client.post { endpoint("/games/$gameId/invites"); jsonBody(InviteRequest(playerIds)) } }
+
+    override suspend fun declineInvite(gameId: String): FriendsView = call { client.post { endpoint("/invites/$gameId/decline") } }
+
     override suspend fun act(id: String, action: Action, version: Int): GameView? {
         val response = try {
             client.post { endpoint("/games/$id/actions"); jsonBody(ActionRequest(action, version)) }
@@ -160,7 +191,9 @@ class KtorOnlineApi(
         return call { response }
     }
 
-    override fun live(id: String, onConnection: (Boolean) -> Unit): Flow<GameView> = flow {
+    // A channel flow, so a problem in whoever collects it ends the flow instead of being
+    // mistaken for a dropped connection below.
+    override fun live(id: String, onConnection: (Boolean) -> Unit): Flow<GameView> = channelFlow {
         val ws = URLBuilder().takeFrom(baseUrl.trimEnd('/') + "/games/$id/live").apply {
             protocol = if (protocol == URLProtocol.HTTPS) URLProtocol.WSS else URLProtocol.WS
             parameters.append("token", token.orEmpty())
@@ -175,7 +208,7 @@ class KtorOnlineApi(
                         if (frame is Frame.Text) {
                             // The server sends the game straight away, so the first frame means we're live.
                             onConnection(true)
-                            emit(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
+                            send(ProtocolJson.decodeFromString(GameView.serializer(), frame.readText()))
                         }
                     }
                 }

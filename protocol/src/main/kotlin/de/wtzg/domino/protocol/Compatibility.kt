@@ -49,6 +49,12 @@ object ServerFeatures {
 
     /** Rematch after a finished game: POST /games/{id}/rematch. */
     const val REMATCH = "rematch"
+
+    /**
+     * Friends and in-app invites: GET/POST /friends, POST /friends/{id}/accept and /remove,
+     * POST /games/{id}/invites and POST /invites/{gameId}/decline.
+     */
+    const val FRIENDS = "friends"
 }
 
 /** The protocol version a game mode was added in; apps speaking older protocols don't know it. */

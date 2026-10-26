@@ -1,6 +1,5 @@
 package de.wtzg.domino.feature.online
 
-import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -28,14 +29,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,8 +59,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,6 +73,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,12 +82,16 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import de.wtzg.domino.engine.Difficulty
 import de.wtzg.domino.feature.play.GameScreen
+import de.wtzg.domino.protocol.Friend
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.Pace
 import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.TurnLimits
 import de.wtzg.domino.protocol.Visibility
+import de.wtzg.domino.ui.components.ConfirmDialog
+import de.wtzg.domino.ui.components.ErrorDialog
+import de.wtzg.domino.ui.components.shareText
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,7 +118,10 @@ fun OnlineGameScreen(
         onDispose { view.keepScreenOn = false }
     }
 
-    var confirmLeave by remember { mutableStateOf(false) }
+    var confirmLeave by rememberSaveable { mutableStateOf(false) }
+    // You're looking at the game now, so its "your turn" notification has done its job.
+    val context = LocalContext.current
+    LaunchedEffect(state.view?.id) { state.view?.id?.let { TurnCheckWorker.clearTurnNotice(context, it) } }
     val v = state.view
     // Tick once a second while a turn clock runs, so the time left counts down.
     val counting = v?.turnEndsInMs != null
@@ -169,41 +182,35 @@ fun OnlineGameScreen(
     if (confirmLeave && v != null) {
         val lobby = v.status == GameStatus.LOBBY
         val host = v.yourSeat == v.hostSeat
-        AlertDialog(
-            onDismissRequest = { confirmLeave = false },
-            title = { Text(if (lobby && host) "Cancel this game?" else "Leave this game?") },
-            text = {
-                Text(
-                    when {
-                        lobby && host -> "Everyone who joined will be sent back."
-                        lobby -> "Your seat opens up for someone else."
-                        else -> "The game ends for everyone, and nobody wins."
-                    },
-                )
+        ConfirmDialog(
+            title = if (lobby && host) "Cancel this game?" else "Leave this game?",
+            text = when {
+                lobby && host -> "Everyone who joined will be sent back."
+                lobby -> "Your seat opens up for someone else."
+                else -> "The game ends for everyone, and nobody wins."
             },
-            confirmButton = { TextButton(onClick = { confirmLeave = false; vm.leave() }) { Text("Leave") } },
-            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Stay") } },
+            confirmLabel = "Leave",
+            dismissLabel = "Stay",
+            onConfirm = { confirmLeave = false; vm.leave() },
+            onDismiss = { confirmLeave = false },
         )
     }
 
-    state.error?.takeIf { v != null }?.let { msg ->
-        AlertDialog(
-            onDismissRequest = vm::dismissError,
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = vm::dismissError) { Text("OK") } },
-        )
-    }
+    state.error?.takeIf { v != null }?.let { ErrorDialog(it, vm::dismissError) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, onBack: () -> Unit, onLeave: () -> Unit) {
-    val context = LocalContext.current
     val host = v.yourSeat == v.hostSeat
-    val link = "${state.serverUrl}/join/${v.code}"
-    var difficulty by rememberSaveable { mutableStateOf(Difficulty.NORMAL) }
-    val free = v.seats.count { it.playerId == null && !it.isAi }
     var editingSettings by rememberSaveable { mutableStateOf(false) }
+    var invitingFriends by rememberSaveable { mutableStateOf(false) }
+    if (invitingFriends) {
+        InviteFriendsDialog(v, state.friends, onLoad = vm::loadFriends, onDismiss = { invitingFriends = false }) { ids ->
+            invitingFriends = false
+            vm.inviteFriends(ids)
+        }
+    }
     if (editingSettings) {
         LobbySettingsDialog(v, showTurnLimit = state.turnLimits, onDismiss = { editingSettings = false }) { req ->
             editingSettings = false
@@ -228,158 +235,273 @@ private fun Lobby(v: GameView, state: OnlineGameState, vm: OnlineGameActions, on
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp),
-            ) {
-                Column(Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Game code", style = MaterialTheme.typography.labelLarge)
-                    Text(v.code, fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
-                    // Friends nearby can scan this instead of typing the code.
-                    QrCode(
-                        text = link,
-                        description = "QR code to join game ${v.code}",
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                    Text("Scan with the Dominoes app or your camera", style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        "${v.rules.mode.title} · to ${v.rules.target} · ${if (v.pace == Pace.LIVE) "live" else "turn by turn"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (state.turnLimits) {
-                        Text("Time per turn: ${TurnLimits.label(v.turnLimitSeconds)}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    Text(
-                        when {
-                            state.local -> "On this Wi-Fi"
-                            v.visibility == Visibility.PUBLIC -> "Open to anyone · listed under Open games"
-                            else -> "Invite only"
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    if (state.local) {
-                        Text(
-                            "Everyone joins on the same Wi-Fi. Address: ${state.serverUrl.removePrefix("http://")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    if (host && state.lobbySettings) {
-                        TextButton(onClick = { editingSettings = true }, enabled = !state.busy) { Text("Change settings") }
-                    }
-                    Button(
-                        onClick = {
-                            val text = "Join my dominoes game! Open the Dominoes app and enter code ${v.code}, or tap: $link"
-                            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-                            context.startActivity(Intent.createChooser(send, "Invite friends"))
-                        },
-                        modifier = Modifier.padding(top = 10.dp),
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null)
-                        Text("  Invite friends")
-                    }
-                }
-            }
-
-            Column(Modifier.fillMaxWidth().widthIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("At the table", style = MaterialTheme.typography.titleMedium)
-                v.seats.forEachIndexed { i, s ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                        Row(Modifier.padding(14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        if (s.online) Color(0xFF43A047) else MaterialTheme.colorScheme.outline,
-                                        CircleShape,
-                                    ),
-                            )
-                            Text(
-                                when {
-                                    s.playerId == null -> "Open seat"
-                                    i == v.yourSeat -> "${s.name} (you)"
-                                    else -> s.name
-                                },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (s.playerId == null) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
-                                modifier = Modifier.weight(1f).padding(start = 12.dp),
-                            )
-                            if (i == v.hostSeat) Text("Host", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-
+            val section = Modifier.fillMaxWidth().widthIn(max = 480.dp)
+            LobbyCodeCard(
+                v,
+                state,
+                onEditSettings = { editingSettings = true }.takeIf { host && state.lobbySettings },
+                onInviteFriends = { invitingFriends = true },
+                modifier = section,
+            )
+            SeatList(v, section)
             if (host && state.publicGames && !state.local) {
-                // Off the list once the seats are full or the game starts, so only offer it while it matters.
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 480.dp)
-                        .toggleable(
-                            value = v.visibility == Visibility.PUBLIC,
-                            enabled = !state.busy,
-                            role = Role.Switch,
-                            onValueChange = { on -> vm.setVisibility(if (on) Visibility.PUBLIC else Visibility.PRIVATE) },
-                        ),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Open to anyone", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "List this game under Open games so players on this server can join without a code.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(checked = v.visibility == Visibility.PUBLIC, onCheckedChange = null, enabled = !state.busy)
-                }
+                VisibilityToggle(v, state.busy, vm::setVisibility, section)
             }
+            LobbyControls(v, state.busy, onStart = vm::start, onLeave = onLeave, modifier = section)
+        }
+    }
+}
 
-            Column(Modifier.fillMaxWidth().widthIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (host) {
-                    if (free > 0) {
-                        Text("Computer players for open seats", style = MaterialTheme.typography.titleSmall)
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            Difficulty.entries.forEachIndexed { i, d ->
-                                SegmentedButton(
-                                    selected = difficulty == d,
-                                    onClick = { difficulty = d },
-                                    shape = SegmentedButtonDefaults.itemShape(i, Difficulty.entries.size),
-                                ) { Text(d.label) }
-                            }
-                        }
-                    }
-                    Button(
-                        onClick = { vm.start(difficulty) },
-                        enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                    ) {
-                        Text(
-                            when (free) {
-                                0 -> "Start game"
-                                1 -> "Start with 1 computer player"
-                                else -> "Start with $free computer players"
-                            },
-                        )
-                    }
-                } else {
-                    Text(
-                        "Waiting for ${v.seats[v.hostSeat].name} to start the game…",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+/** The game code, its QR code and link, what's being played, and ways to invite people. */
+@Composable
+private fun LobbyCodeCard(
+    v: GameView,
+    state: OnlineGameState,
+    onEditSettings: (() -> Unit)?,
+    onInviteFriends: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val link = "${state.serverUrl}/join/${v.code}"
+    val free = v.seats.count { it.playerId == null && !it.isAi }
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+        modifier = modifier,
+    ) {
+        Column(Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Game code", style = MaterialTheme.typography.labelLarge)
+            Text(v.code, fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
+            // Friends nearby can scan this instead of typing the code.
+            QrCode(
+                text = link,
+                description = "QR code to join game ${v.code}",
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            Text("Scan with the Dominoes app or your camera", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "${v.rules.mode.title} · to ${v.rules.target} · ${if (v.pace == Pace.LIVE) "live" else "turn by turn"}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (state.turnLimits) {
+                Text("Time per turn: ${TurnLimits.label(v.turnLimitSeconds)}", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                when {
+                    state.local -> "On this Wi-Fi"
+                    v.visibility == Visibility.PUBLIC -> "Open to anyone · listed under Open games"
+                    else -> "Invite only"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            if (state.local) {
+                Text(
+                    "Everyone joins on the same Wi-Fi. Address: ${state.serverUrl.removePrefix("http://")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            if (onEditSettings != null) {
+                TextButton(onClick = onEditSettings, enabled = !state.busy) { Text("Change settings") }
+            }
+            Button(
+                onClick = {
+                    context.shareText(
+                        "Join my dominoes game! Open the Dominoes app and enter code ${v.code}, or tap: $link",
+                        "Invite friends",
                     )
-                }
-                OutlinedButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (host) "Cancel game" else "Leave")
+                },
+                modifier = Modifier.padding(top = 10.dp),
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text(if (state.friendsAvailable) "Share invite link" else "Invite friends")
+            }
+            if (state.friendsAvailable && free > 0) {
+                FilledTonalButton(onClick = onInviteFriends, enabled = !state.busy) {
+                    Icon(Icons.Outlined.People, contentDescription = null)
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Invite friends in the app")
                 }
             }
         }
     }
+}
+
+/** Who's at the table, who's online, and who's been invited. */
+@Composable
+private fun SeatList(v: GameView, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("At the table", style = MaterialTheme.typography.titleMedium)
+        v.seats.forEachIndexed { i, s ->
+            val presence = when {
+                s.playerId == null -> null
+                s.online -> "Online"
+                else -> "Away"
+            }
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                Row(
+                    Modifier
+                        .padding(14.dp)
+                        .fillMaxWidth()
+                        // The dot is colour only, so say it too.
+                        .semantics(mergeDescendants = true) { presence?.let { stateDescription = it } },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(10.dp)
+                            .background(if (s.online) Color(0xFF43A047) else MaterialTheme.colorScheme.outline, CircleShape),
+                    )
+                    Text(
+                        when {
+                            s.playerId == null -> "Open seat"
+                            i == v.yourSeat -> "${s.name} (you)"
+                            else -> s.name
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (s.playerId == null) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
+                        modifier = Modifier.weight(1f).padding(start = 12.dp),
+                    )
+                    if (i == v.hostSeat) Text("Host", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        if (v.invited.isNotEmpty()) {
+            Text(
+                "Invited: " + v.invited.joinToString(", ") { it.name } + ". They'll see it under Invites.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** The host lists the lobby under Open games, or takes it off. */
+@Composable
+private fun VisibilityToggle(v: GameView, busy: Boolean, onChange: (Visibility) -> Unit, modifier: Modifier = Modifier) {
+    // Off the list once the seats are full or the game starts, so only offer it while it matters.
+    Row(
+        modifier.toggleable(
+            value = v.visibility == Visibility.PUBLIC,
+            enabled = !busy,
+            role = Role.Switch,
+            onValueChange = { on -> onChange(if (on) Visibility.PUBLIC else Visibility.PRIVATE) },
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Open to anyone", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "List this game under Open games so players on this server can join without a code.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = v.visibility == Visibility.PUBLIC, onCheckedChange = null, enabled = !busy)
+    }
+}
+
+/** The host starts the game (computers fill the free seats); everyone can leave. */
+@Composable
+private fun LobbyControls(v: GameView, busy: Boolean, onStart: (Difficulty) -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier) {
+    val host = v.yourSeat == v.hostSeat
+    val free = v.seats.count { it.playerId == null && !it.isAi }
+    var difficulty by rememberSaveable { mutableStateOf(Difficulty.NORMAL) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (host) {
+            if (free > 0) {
+                Text("Computer players for open seats", style = MaterialTheme.typography.titleSmall)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    Difficulty.entries.forEachIndexed { i, d ->
+                        SegmentedButton(
+                            selected = difficulty == d,
+                            onClick = { difficulty = d },
+                            shape = SegmentedButtonDefaults.itemShape(i, Difficulty.entries.size),
+                        ) { Text(d.label) }
+                    }
+                }
+            }
+            Button(
+                onClick = { onStart(difficulty) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Text(
+                    when (free) {
+                        0 -> "Start game"
+                        1 -> "Start with 1 computer player"
+                        else -> "Start with $free computer players"
+                    },
+                )
+            }
+        } else {
+            Text(
+                "Waiting for ${v.seats[v.hostSeat].name} to start the game…",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
+            Text(if (host) "Cancel game" else "Leave")
+        }
+    }
+}
+
+/** Pick friends to invite; those at the table or already invited aren't offered again. */
+@Composable
+private fun InviteFriendsDialog(
+    v: GameView,
+    friends: List<Friend>?,
+    onLoad: () -> Unit,
+    onDismiss: () -> Unit,
+    onInvite: (List<String>) -> Unit,
+) {
+    LaunchedEffect(Unit) { onLoad() }
+    val free = v.seats.count { it.playerId == null && !it.isAi }
+    val skip = v.seats.mapNotNull { it.playerId }.toSet() + v.invited.map { it.playerId }
+    val offered = friends?.filter { it.playerId !in skip }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Invite friends") },
+        text = {
+            when {
+                offered == null -> CircularProgressIndicator()
+                friends.isEmpty() -> Text("No friends yet. Add them under Friends on the Play with friends screen.")
+                offered.isEmpty() -> Text("All your friends are at the table or invited already.")
+                else -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (free == 1) "1 seat is free." else "$free seats are free.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    offered.forEach { f ->
+                        val on = f.playerId in picked
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .toggleable(value = on, role = Role.Checkbox) { picked = if (it) picked + f.playerId else picked - f.playerId }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = on, onCheckedChange = null)
+                            Text(f.name, modifier = Modifier.padding(start = 12.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onInvite(picked.toList()) }, enabled = picked.isNotEmpty()) {
+                Text(if (picked.size > 1) "Invite ${picked.size}" else "Invite")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The host changes the game before it starts; starts from the current settings. */

@@ -9,6 +9,7 @@ import de.wtzg.domino.engine.Move
 import de.wtzg.domino.engine.Tile
 import de.wtzg.domino.feature.play.GameActions
 import de.wtzg.domino.protocol.Action
+import de.wtzg.domino.protocol.Friend
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameView
 import de.wtzg.domino.protocol.PublicEvent
@@ -16,13 +17,14 @@ import de.wtzg.domino.protocol.ServerFeatures
 import de.wtzg.domino.protocol.SettingsRequest
 import de.wtzg.domino.protocol.Visibility
 import de.wtzg.domino.protocol.legalMoves
+import de.wtzg.domino.ui.components.BADGE_MS
 import de.wtzg.domino.ui.components.TableBadge
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class OnlineGameState(
@@ -46,7 +48,12 @@ data class OnlineGameState(
     val reconnecting: Boolean = false,
     /** Hosted on a phone on the same Wi-Fi rather than the online server. */
     val local: Boolean = false,
+    /** Your friends, once loaded for inviting them to the lobby. */
+    val friends: List<Friend>? = null,
 ) {
+    /** The server has friends, so you can invite them to the lobby from the app. */
+    val friendsAvailable: Boolean get() = !local && ServerFeatures.FRIENDS in features
+
     /** The server can list lobbies publicly, so the host may switch it on and off. */
     val publicGames: Boolean get() = ServerFeatures.PUBLIC_GAMES in features
 
@@ -72,6 +79,12 @@ interface OnlineGameActions : GameActions {
     /** Host only, in the lobby: change the game, the table size, the target or the pace. */
     fun updateSettings(settings: SettingsRequest)
 
+    /** Loads your friends, to pick whom to invite. */
+    fun loadFriends()
+
+    /** Invites friends to this lobby through the app. */
+    fun inviteFriends(playerIds: List<String>)
+
     /** The screen has switched to [OnlineGameState.moveTo]. */
     fun moved()
     fun leave()
@@ -82,26 +95,26 @@ class OnlineGameViewModel(
     private val id: String,
     private val repo: OnlineRepository,
     local: Boolean = false,
+    /** A friend to invite once the lobby is open: the one this game was set up to challenge. */
+    private var invite: String? = null,
 ) : ViewModel(), OnlineGameActions {
     private val _state = MutableStateFlow(OnlineGameState(local = local))
     val state: StateFlow<OnlineGameState> = _state.asStateFlow()
     private var badgeId = 0L
 
     init {
-        viewModelScope.launch {
-            try {
-                repo.account.collect { a -> _state.update { it.copy(serverUrl = a.serverUrl) } }
-            } catch (_: Exception) {
-            }
+        viewModelScope.launch { repo.account.collect { a -> _state.update { it.copy(serverUrl = a.serverUrl) } } }
+        viewModelScope.launch { loadFeatures() }
+    }
+
+    /** What the server can do. If it can't be reached now, this is tried again once the game connects. */
+    private suspend fun loadFeatures() {
+        val features = try {
+            repo.api().serverInfo().features
+        } catch (_: OnlineException) {
+            return
         }
-        viewModelScope.launch {
-            val features = try {
-                repo.api().serverInfo().features
-            } catch (_: OnlineException) {
-                emptyList()
-            }
-            _state.update { it.copy(features = features) }
-        }
+        _state.update { it.copy(features = features) }
     }
 
     override suspend fun stayConnected() {
@@ -117,16 +130,26 @@ class OnlineGameViewModel(
 
     private var dropout: Job? = null
 
-    /** Shows "Reconnecting…" only if the link stays down for a moment, so quick blips don't flash. */
+    /**
+     * Shows "Reconnecting…" only if the link stays down for a moment, so quick blips don't flash.
+     * Then checks whether the game still exists: the server hangs up for good when the host
+     * cancels it or the game is otherwise gone.
+     */
     private fun connection(up: Boolean) {
         if (up) {
             dropout?.cancel()
             dropout = null
             if (_state.value.reconnecting) _state.update { it.copy(reconnecting = false) }
+            if (_state.value.features.isEmpty()) viewModelScope.launch { loadFeatures() }
         } else if (dropout == null) {
             dropout = viewModelScope.launch {
                 delay(RECONNECT_NOTICE_DELAY_MS)
                 _state.update { it.copy(reconnecting = true) }
+                try {
+                    repo.api().game(id)
+                } catch (e: OnlineException) {
+                    if (e.status == 404 || e.status == 403) _state.update { it.copy(gone = true) }
+                }
             }
         }
     }
@@ -139,36 +162,63 @@ class OnlineGameViewModel(
             val scored = newEvents.filterIsInstance<PublicEvent.Played>().lastOrNull { it.points > 0 }
             val badge = scored?.let {
                 val who = if (it.seat == v.yourSeat) "" else "${v.seats[it.seat].name} "
-                TableBadge(++badgeId, "$who+${it.points}")
+                newBadge("$who+${it.points}")
             }
             // On first sight, only show the last hand's summary if the new hand has barely started.
             val acked = if (old == null && v.events.size > 1) v.lastHand?.handNumber ?: 0 else s.ackedHand
             s.copy(
                 view = v,
                 viewAt = System.currentTimeMillis(),
-                error = null,
                 selected = s.selected.takeIf { v.isYourTurn },
                 ackedHand = acked,
                 badge = badge ?: s.badge,
             )
         }
+        sendChallenge(v)
     }
 
-    private fun send(action: Action) {
-        val v = _state.value.view ?: return
+    /** A score badge that goes away after it's been shown, so coming back to the table doesn't replay it. */
+    private fun newBadge(text: String): TableBadge {
+        val badge = TableBadge(++badgeId, text)
+        viewModelScope.launch {
+            delay(BADGE_MS)
+            _state.update { if (it.badge?.id == badge.id) it.copy(badge = null) else it }
+        }
+        return badge
+    }
+
+    /** The challenge invite goes out once, as soon as we're in the lobby. */
+    private fun sendChallenge(v: GameView) {
+        val friend = invite ?: return
+        invite = null
+        if (v.status == GameStatus.LOBBY && v.invited.none { it.playerId == friend }) inviteFriends(listOf(friend))
+    }
+
+    /**
+     * Runs one request at a time and shows the server's answer, or its error. A null answer
+     * means the game is gone.
+     */
+    private fun request(onError: (OnlineException) -> Unit = {}, call: suspend () -> GameView?) {
         if (_state.value.busy) return
         viewModelScope.launch {
-            _state.update { it.copy(busy = true, selected = null) }
+            _state.update { it.copy(busy = true) }
             try {
-                val next = repo.api().act(id, action, v.version)
+                val next = call()
                 if (next == null) _state.update { it.copy(gone = true) } else apply(next)
             } catch (e: OnlineException) {
-                if (e.status == 409) refresh()
+                onError(e)
                 _state.update { it.copy(error = e.message) }
             } finally {
                 _state.update { it.copy(busy = false) }
             }
         }
+    }
+
+    private fun send(action: Action) {
+        val v = _state.value.view ?: return
+        _state.update { it.copy(selected = null) }
+        // Someone else moved first: catch up, so the next try works.
+        request(onError = { if (it.status == 409) refresh() }) { repo.api().act(id, action, v.version) }
     }
 
     fun refresh() = viewModelScope.launch {
@@ -179,52 +229,33 @@ class OnlineGameViewModel(
         }
     }
 
-    override fun start(difficulty: Difficulty) {
+    override fun start(difficulty: Difficulty) = request { repo.api().start(id, difficulty) }
+
+    override fun setVisibility(visibility: Visibility) = request { repo.api().setVisibility(id, visibility) }
+
+    override fun updateSettings(settings: SettingsRequest) = request { repo.api().updateSettings(id, settings) }
+
+    override fun loadFriends() {
         viewModelScope.launch {
-            _state.update { it.copy(busy = true) }
             try {
-                apply(repo.api().start(id, difficulty))
+                val f = repo.api().friends().friends
+                _state.update { it.copy(friends = f) }
             } catch (e: OnlineException) {
                 _state.update { it.copy(error = e.message) }
-            } finally {
-                _state.update { it.copy(busy = false) }
             }
         }
     }
 
-    override fun setVisibility(visibility: Visibility) = lobbyChange { repo.api().setVisibility(id, visibility) }
-
-    override fun updateSettings(settings: SettingsRequest) = lobbyChange { repo.api().updateSettings(id, settings) }
-
-    /** A host's change in the lobby: one at a time, showing the server's answer or its error. */
-    private fun lobbyChange(request: suspend () -> GameView) {
-        if (_state.value.busy) return
-        viewModelScope.launch {
-            _state.update { it.copy(busy = true) }
-            try {
-                apply(request())
-            } catch (e: OnlineException) {
-                _state.update { it.copy(error = e.message) }
-            } finally {
-                _state.update { it.copy(busy = false) }
-            }
-        }
+    override fun inviteFriends(playerIds: List<String>) {
+        if (playerIds.isNotEmpty()) request { repo.api().invite(id, playerIds) }
     }
 
     /** Leaving takes you back to your games, whether you left a lobby or ended a game. */
     override fun leave() {
         val v = _state.value.view ?: return
-        if (_state.value.busy) return
-        viewModelScope.launch {
-            _state.update { it.copy(busy = true) }
-            try {
-                repo.api().act(id, Action.Leave, v.version)
-                _state.update { it.copy(gone = true) }
-            } catch (e: OnlineException) {
-                _state.update { it.copy(error = e.message) }
-            } finally {
-                _state.update { it.copy(busy = false) }
-            }
+        request {
+            repo.api().act(id, Action.Leave, v.version)
+            null
         }
     }
 

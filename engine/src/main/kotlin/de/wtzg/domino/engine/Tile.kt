@@ -2,7 +2,10 @@ package de.wtzg.domino.engine
 
 import kotlinx.serialization.Serializable
 
-/** A double-six domino. */
+/**
+ * A double-six domino. Equality depends on order (6|1 != 1|6), so tiles always come
+ * from [SET], high number first.
+ */
 @Serializable
 data class Tile(val a: Int, val b: Int) {
     init {

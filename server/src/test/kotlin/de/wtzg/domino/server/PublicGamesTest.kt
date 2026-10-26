@@ -157,17 +157,17 @@ class PublicGamesTest {
             val service = GameService(SqliteStore(file.path), random = Random(4))
             val ann = service.authenticate(service.register("Ann").token)!!
             val bob = service.authenticate(service.register("Bob").token)!!
-            val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, Visibility.PUBLIC))
-            service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, Visibility.PRIVATE))
+            val g = service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, Visibility.PUBLIC), 1)
+            service.create(ann, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.TURN_BASED, Visibility.PRIVATE), 1)
 
             // Survives a restart.
             assertEquals(listOf(g.id), SqliteStore(file.path).openGames(10).map { it.id })
-            assertEquals(listOf(g.id), service.openGames(bob).map { it.id })
+            assertEquals(listOf(g.id), service.openGames(bob, 1).map { it.id })
 
-            service.join(bob, g.code)
+            service.join(bob, g.code, 1)
             assertTrue("full games leave the list", SqliteStore(file.path).openGames(10).isEmpty())
 
-            val h = service.create(bob, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, Visibility.PUBLIC))
+            val h = service.create(bob, CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE, Visibility.PUBLIC), 1)
             SqliteStore(file.path).deleteGame(h.id)
             assertTrue("deleted games leave the list", SqliteStore(file.path).openGames(10).isEmpty())
         } finally {
@@ -182,7 +182,7 @@ class PublicGamesTest {
             // Exactly the first release's schema, with one of its games in it.
             val service1 = GameService(InMemoryStore(), random = Random(5))
             val ann = service1.authenticate(service1.register("Ann").token)!!
-            val old = service1.create(ann, CreateGameRequest(GameMode.BLOCK, 2, 60, Pace.LIVE))
+            val old = service1.create(ann, CreateGameRequest(GameMode.BLOCK, 2, 60, Pace.LIVE), 1)
             DriverManager.getConnection("jdbc:sqlite:${file.path}").use { conn ->
                 conn.createStatement().use { st ->
                     st.executeUpdate(
@@ -207,7 +207,7 @@ class PublicGamesTest {
             val version = DriverManager.getConnection("jdbc:sqlite:${file.path}").use { conn ->
                 conn.createStatement().use { st -> st.executeQuery("PRAGMA user_version").use { it.next(); it.getInt(1) } }
             }
-            assertEquals("upgraded through every schema step", 3, version)
+            assertEquals("upgraded through every schema step", 4, version)
         } finally {
             file.delete()
         }

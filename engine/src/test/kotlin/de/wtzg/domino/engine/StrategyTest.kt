@@ -22,7 +22,20 @@ class StrategyTest {
         )
         val best = Strategy.evaluateAll(r).first()
         assertEquals(t(2, 1), best.move.tile)
-        assertTrue(best.pros.first().contains("must draw or pass"))
+        assertTrue(best.pros.first().contains("they have to draw or pass"))
+
+        // In Block nobody draws.
+        val block = Strategy.evaluateAll(r.copy(rules = Rules(GameMode.BLOCK), boneyard = emptyList())).first()
+        assertTrue(block.pros.first().endsWith("so they have to pass."))
+    }
+
+    @Test
+    fun coachExplainsTheOpeningTile() {
+        fun opener(tile: Tile) = Strategy.evaluateAll(
+            Round(Rules(GameMode.DRAW), listOf(listOf(tile, t(1, 0)), listOf(t(2, 1))), emptyList(), 0, opening = tile),
+        ).single().factors.single().text!!
+        assertTrue(opener(t(6, 6)).startsWith("The highest double"))
+        assertTrue(opener(t(6, 5)).startsWith("Nobody has a double, so the heaviest tile"))
     }
 
     @Test

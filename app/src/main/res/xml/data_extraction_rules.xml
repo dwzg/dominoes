@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+: everything the app keeps (settings, stats, saved game, score keeper and your
+    online identities) goes into backups and moves to a new phone, so you keep your games and
+    friends online. Online identities are only sign-in tokens for the game server.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="datastore/" />
+        <!-- Data from version 1, still waiting to be moved over. -->
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="datastore/" />
+        <!-- Data from version 1, still waiting to be moved over. -->
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

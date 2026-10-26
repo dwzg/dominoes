@@ -10,6 +10,18 @@ import org.junit.Test
 
 class InviteQrTest {
     @Test
+    fun readsFriendCodesFromLinksAndTyping() {
+        assertEquals("ABCD2345", friendCodeFrom("https://dominoes.example.com/friend/ABCD2345"))
+        assertEquals("ABCD2345", friendCodeFrom("dominoes://friends?code=abcd2345&server=https%3A%2F%2Fx"))
+        assertEquals("ABCD2345", friendCodeFrom(" abcd-2345 "))
+        assertEquals("ABCD2345", friendCodeFrom("ABCD2345"))
+        assertNull(friendCodeFrom("ABC234"))
+        assertNull(friendCodeFrom("https://dominoes.example.com/join/ABC234"))
+        assertNull(friendCodeFrom("ABCD 2345!"))
+        assertEquals("ABCD-2345", formatFriendCode("ABCD2345"))
+    }
+
+    @Test
     fun readsTheCodeFromInviteLinks() {
         assertEquals("ABC234", inviteCodeFrom("https://dominoes.example.com/join/ABC234"))
         assertEquals("ABC234", inviteCodeFrom("http://192.168.1.20:8080/join/abc234/"))

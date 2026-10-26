@@ -34,6 +34,7 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.withTimeout
@@ -208,13 +209,42 @@ class ServerTest {
     }
 
     @Test
+    fun liveConnectionsCloseWhenTheHostCancels() = testApplication {
+        val c = setUp()
+        val ann = c.register("Ann")
+        val bob = c.register("Bob")
+        val g = c.newGame(ann, GameMode.DRAW, 2, 60)
+        c.join(bob, g.code)
+        c.webSocket("/games/${g.id}/live?token=${bob.token}") {
+            withTimeout(5_000) { incoming.receive() }
+            c.act(ann, g.id, Action.Leave, 0)
+            // Any updates still on their way, then the server hangs up.
+            withTimeout(5_000) { while (incoming.receiveCatching().isSuccess) Unit }
+            assertEquals(CloseReason.Codes.NORMAL.code, withTimeout(5_000) { closeReason.await() }?.code)
+        }
+    }
+
+    @Test
+    fun oversizedAndNonJsonRequestsAreTurnedAway() = testApplication {
+        val c = setUp()
+        val ann = c.register("Ann")
+        val huge = c.post("/players") {
+            contentType(ContentType.Application.Json)
+            setBody("{\"name\":\"" + "x".repeat(100_000) + "\"}")
+        }
+        assertEquals(HttpStatusCode.PayloadTooLarge, huge.status)
+        val text = c.post("/games/join") { bearerAuth(ann.token); contentType(ContentType.Text.Plain); setBody("ABC234") }
+        assertEquals(HttpStatusCode.UnsupportedMediaType, text.status)
+    }
+
+    @Test
     fun sqliteKeepsGamesAndPlayers() {
         val file = kotlin.io.path.createTempFile("domino", ".db").toFile()
         try {
             val service = GameService(SqliteStore(file.path), random = Random(2))
             val reg = service.register("Ann")
             val p = service.authenticate(reg.token)!!
-            val g = service.create(p, CreateGameRequest(GameMode.ALL_THREES, 2, 90, Pace.TURN_BASED))
+            val g = service.create(p, CreateGameRequest(GameMode.ALL_THREES, 2, 90, Pace.TURN_BASED), 1)
             val again = SqliteStore(file.path)
             assertEquals(g, again.game(g.id))
             assertEquals(g, again.gameByCode(g.code))

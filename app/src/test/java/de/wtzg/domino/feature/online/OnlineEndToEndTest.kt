@@ -33,6 +33,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.delay
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -52,6 +55,7 @@ class OnlineEndToEndTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before fun setUp() {
+        Dispatchers.setMain(Dispatchers.Unconfined)
         server = embeddedServer(Netty, port = 0, host = "127.0.0.1") { dominoServer(GameService(InMemoryStore()), LiveHub()) }.start()
         val port = runBlocking { server.engine.resolvedConnectors().first().port }
         url = "http://127.0.0.1:$port"
@@ -61,6 +65,7 @@ class OnlineEndToEndTest {
         scope.cancel()
         // Some tests stop the server themselves.
         runCatching { server.stop(100, 500) }
+        Dispatchers.resetMain()
     }
 
     private fun phone(name: String): OnlineRepository {
@@ -232,5 +237,83 @@ class OnlineEndToEndTest {
         val e = runCatching { repo.register("Ann") }.exceptionOrNull()
         assertTrue(e is OnlineException)
         assertTrue(e!!.message!!.startsWith("Can't reach the server"))
+    }
+
+    @Test
+    fun friendsChallengeEachOtherThroughTheApp() = runBlocking {
+        val ann = phone("ann-friends")
+        val bob = phone("bob-friends")
+        assertTrue(de.wtzg.domino.protocol.ServerFeatures.FRIENDS in ann.api().serverInfo().features)
+        ann.register("Ann")
+        bob.register("Bob")
+
+        // Bob adds Ann with her code as she'd share it; Ann accepts.
+        val code = formatFriendCode(ann.api().friends().friendCode)
+        bob.api().addFriend(friendCodeFrom(code)!!)
+        val request = ann.api().friends().requests.single()
+        assertEquals("Bob", request.name)
+        assertEquals(listOf("Bob"), ann.api().acceptFriend(request.playerId).friends.map { it.name })
+
+        // Ann challenges Bob: a lobby with an invite in it.
+        val bobId = ann.api().friends().friends.single().playerId
+        val lobby = ann.api().create(CreateGameRequest(GameMode.ALL_THREES, players = 2, target = 90, pace = Pace.TURN_BASED))
+        assertEquals(listOf("Bob"), ann.api().invite(lobby.id, listOf(bobId)).invited.map { it.name })
+
+        val invite = bob.api().friends().invites.single()
+        assertEquals("Ann", invite.from)
+        assertEquals(GameMode.ALL_THREES, invite.mode)
+        assertEquals(lobby.id, bob.api().join(invite.code).id)
+        assertTrue(bob.api().friends().invites.isEmpty())
+        assertTrue(ann.api().game(lobby.id).invited.isEmpty())
+
+        // A second invite, declined this time.
+        val next = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        ann.api().invite(next.id, listOf(bobId))
+        assertTrue(bob.api().declineInvite(next.id).invites.isEmpty())
+        assertTrue(ann.api().game(next.id).invited.isEmpty())
+    }
+
+    private suspend fun <T> eventually(read: () -> T?): T = withTimeout(10_000) {
+        var value = read()
+        while (value == null) {
+            delay(20)
+            value = read()
+        }
+        value
+    }
+
+    @Test
+    fun aGuestNoticesWhenTheHostCancels() = runBlocking {
+        val ann = phone("ann-cancel")
+        val bob = phone("bob-cancel")
+        ann.register("Ann")
+        bob.register("Bob")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        bob.api().join(lobby.code)
+
+        val bobVm = OnlineGameViewModel(lobby.id, bob)
+        val live = scope.launch { bobVm.stayConnected() }
+        eventually { bobVm.state.value.view }
+        ann.api().act(lobby.id, Action.Leave, 0)
+        eventually { bobVm.state.value.gone.takeIf { it } }
+        live.cancel()
+    }
+
+    @Test
+    fun aChallengeInvitesTheFriendFromTheLobby() = runBlocking {
+        val ann = phone("ann-challenge")
+        val bob = phone("bob-challenge")
+        ann.register("Ann")
+        bob.register("Bob")
+        bob.api().addFriend(ann.api().friends().friendCode)
+        val bobId = ann.api().friends().requests.single().playerId
+        ann.api().acceptFriend(bobId)
+
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        val annVm = OnlineGameViewModel(lobby.id, ann, invite = bobId)
+        val live = scope.launch { annVm.stayConnected() }
+        eventually { annVm.state.value.view?.invited?.takeIf { it.isNotEmpty() } }
+        assertEquals(lobby.id, bob.api().friends().invites.single().gameId)
+        live.cancel()
     }
 }

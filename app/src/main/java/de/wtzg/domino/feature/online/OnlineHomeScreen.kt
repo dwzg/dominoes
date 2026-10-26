@@ -1,6 +1,7 @@
 package de.wtzg.domino.feature.online
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,8 +25,12 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,18 +54,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import de.wtzg.domino.protocol.GameInvite
 import de.wtzg.domino.protocol.GameStatus
 import de.wtzg.domino.protocol.GameSummary
 import de.wtzg.domino.protocol.Limits
 import de.wtzg.domino.protocol.OpenGame
 import de.wtzg.domino.protocol.Pace
+import de.wtzg.domino.ui.components.ErrorDialog
 import de.wtzg.domino.ui.components.SectionHeader
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,16 +80,14 @@ fun OnlineHomeScreen(
     onBack: () -> Unit,
     onCreate: () -> Unit,
     onOpenGame: (String) -> Unit,
+    onFriends: () -> Unit = {},
 ) {
     LaunchedEffect(state.open) { state.open?.let { onOpenGame(it); vm.opened() } }
     val reg = state.account?.registration
-    // Keep the list fresh while it's on screen.
-    LaunchedEffect(reg) {
-        while (reg != null) {
-            delay(30_000)
-            vm.refresh()
-        }
-    }
+    RefreshWhileVisible(enabled = reg != null, refresh = vm::refresh)
+    // Turn-based games and friends' invites both arrive as notifications.
+    val hasFriends = state.friends?.let { it.friends.isNotEmpty() || it.requests.isNotEmpty() } == true
+    NotificationsPermission(reg != null && (state.games.any { it.pace == Pace.TURN_BASED } || hasFriends))
     // Invite links: join as soon as we know who you are.
     var joinedFromLink by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(initialCode, reg) {
@@ -127,14 +134,39 @@ fun OnlineHomeScreen(
                             ) { Text(msg, modifier = Modifier.padding(16.dp)) }
                         }
                     }
+                    state.offline?.let { msg ->
+                        item { Text(msg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                    }
                     item { Identity(reg.name, vm::rename) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = onCreate, modifier = Modifier.weight(1f)) { Text("Create a game") }
+                            if (state.friendsAvailable) {
+                                val requests = state.friends?.requests?.size ?: 0
+                                OutlinedButton(
+                                    onClick = onFriends,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .semantics(mergeDescendants = true) {
+                                            if (requests > 0) contentDescription = "Friends, $requests ${if (requests == 1) "request" else "requests"}"
+                                        },
+                                ) {
+                                    BadgedBox(badge = { if (requests > 0) Badge { Text("$requests") } }) {
+                                        Icon(Icons.Outlined.People, contentDescription = null)
+                                    }
+                                    Spacer(Modifier.width(ButtonDefaults.IconSpacing + if (requests > 0) 4.dp else 0.dp))
+                                    Text("Friends")
+                                }
+                            }
+                        }
+                    }
+                    if (state.invites.isNotEmpty()) {
+                        item { SectionHeader("Invites") }
+                        items(state.invites, key = { "invite-${it.gameId}" }) { i ->
+                            InviteRow(i, state.busy, onJoin = { vm.join(i.code) }, onDecline = { vm.declineInvite(i.gameId) })
                         }
                     }
                     item { JoinWithCode(initialCode.orEmpty(), state.busy, vm::join) }
-                    item { NotificationsPermission(state.games.any { it.pace == Pace.TURN_BASED }) }
                     if (state.publicGames) {
                         item { SectionHeader("Open games") }
                         if (state.openGames.isEmpty()) {
@@ -162,14 +194,7 @@ fun OnlineHomeScreen(
         }
     }
 
-    state.error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = vm::dismissError,
-            title = { Text("Something went wrong") },
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = vm::dismissError) { Text("OK") } },
-        )
-    }
+    state.error?.let { ErrorDialog(it, vm::dismissError) }
 }
 
 @Composable
@@ -284,43 +309,67 @@ private fun JoinWithCode(initial: String, busy: Boolean, onJoin: (String) -> Uni
     }
 }
 
-/** Turn-based games need notifications; ask once there is one (Android 13+). */
+/**
+ * Turn-based games and invites need notifications; ask once they matter (Android 13+), and
+ * only if not allowed yet. Asked at most once per visit; Android stops showing the prompt
+ * by itself after it's been turned down twice.
+ */
 @Composable
 private fun NotificationsPermission(needed: Boolean) {
-    if (!needed || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    LaunchedEffect(Unit) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+    LaunchedEffect(needed) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (needed && !asked && !granted) {
+            asked = true
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+}
+
+/** A friend asked you to their table. */
+@Composable
+private fun InviteRow(i: GameInvite, busy: Boolean, onJoin: () -> Unit, onDecline: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp)) {
+            Text("${i.from} invites you", style = MaterialTheme.typography.titleMedium)
+            val free = i.seats - i.taken
+            Text(
+                "${i.mode.title} · to ${i.target} · ${if (i.pace == Pace.LIVE) "live" else "turn by turn"} · " +
+                    "$free of ${i.seats} seats free",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDecline, enabled = !busy) { Text("Decline") }
+                Button(onClick = onJoin, enabled = !busy) { Text("Join") }
+            }
+        }
+    }
 }
 
 /** A public lobby: who's hosting, what they're playing, and how many seats are left. */
 @Composable
 private fun OpenGameRow(g: OpenGame, busy: Boolean, onJoin: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (g.pace == Pace.LIVE) Icons.Outlined.Bolt else Icons.Outlined.HourglassEmpty,
-                contentDescription = if (g.pace == Pace.LIVE) "Live" else "Turn by turn",
-            )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(start = 12.dp),
-            ) {
-                Text("${g.host}'s table", style = MaterialTheme.typography.titleMedium)
-                val free = g.seats - g.taken
-                Text(
-                    "${g.mode.title} · to ${g.target} · $free of ${g.seats} seats free",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Button(onClick = onJoin, enabled = !busy) { Text("Join") }
-        }
-    }
+    ListCard(
+        title = "${g.host}'s table",
+        note = "${g.mode.title} · to ${g.target} · ${g.seats - g.taken} of ${g.seats} seats free",
+        leading = { PaceIcon(g.pace) },
+    ) { Button(onClick = onJoin, enabled = !busy) { Text("Join") } }
 }
+
+@Composable
+private fun PaceIcon(pace: Pace) = Icon(
+    if (pace == Pace.LIVE) Icons.Outlined.Bolt else Icons.Outlined.HourglassEmpty,
+    contentDescription = if (pace == Pace.LIVE) "Live" else "Turn by turn",
+)
+
+/** What the server calls a seat nobody has taken yet in "your games". */
+private const val OPEN_SEAT = "Open seat"
 
 @Composable
 private fun GameRow(g: GameSummary, onClick: () -> Unit) {
@@ -340,18 +389,15 @@ private fun GameRow(g: GameSummary, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (g.pace == Pace.LIVE) Icons.Outlined.Bolt else Icons.Outlined.HourglassEmpty,
-                contentDescription = if (g.pace == Pace.LIVE) "Live" else "Turn by turn",
-            )
+            PaceIcon(g.pace)
             Column(
                 Modifier
                     .weight(1f)
                     .padding(start = 12.dp),
             ) {
                 Text(g.mode.title, style = MaterialTheme.typography.titleMedium)
-                val open = g.seats.count { it == "Open seat" }
-                val names = g.seats.mapIndexedNotNull { i, s -> if (i == g.yourSeat) "You" else s.takeIf { it != "Open seat" } }
+                val open = g.seats.count { it == OPEN_SEAT }
+                val names = g.seats.mapIndexedNotNull { i, s -> if (i == g.yourSeat) "You" else s.takeIf { it != OPEN_SEAT } }
                 Text(
                     names.joinToString(", ") + if (open > 0) " + $open open seat${if (open > 1) "s" else ""}" else "",
                     style = MaterialTheme.typography.bodyMedium,

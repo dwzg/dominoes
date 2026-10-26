@@ -23,4 +23,5 @@ fun playOut(
     return r
 }
 
-fun t(a: Int, b: Int) = Tile(a, b)
+/** High number first, like the tiles in [Tile.SET], so they compare equal to dealt ones. */
+fun t(a: Int, b: Int) = Tile(maxOf(a, b), minOf(a, b))

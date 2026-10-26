@@ -183,6 +183,8 @@ data class GameView(
     val leftSeat: Int? = null,
     /** A rematch someone has set up after this game; POST /games/{id}/rematch joins it. */
     val rematchId: String? = null,
+    /** Friends invited to this lobby through the app who haven't joined or declined yet. */
+    val invited: List<Friend> = emptyList(),
 ) {
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }
@@ -227,6 +229,52 @@ data class GameSummary(
     val isYourTurn: Boolean get() = status == GameStatus.PLAYING && turn == yourSeat
 }
 
+// --- Friends ---------------------------------------------------------------------------------
+
+/** Another player, as your friends list shows them. */
+@Serializable
+data class Friend(val playerId: String, val name: String)
+
+/** A friend asked you to a game that's still waiting for players. Join it with [code]. */
+@Serializable
+data class GameInvite(
+    val gameId: String,
+    val code: String,
+    /** Who sent it. */
+    val from: String,
+    val mode: GameMode,
+    val target: Int,
+    val pace: Pace,
+    val seats: Int,
+    /** Seats already taken by people. */
+    val taken: Int,
+    val turnLimitSeconds: Int = 0,
+    val sentAt: Long,
+)
+
+/** Everything on your friends page, and the game invites waiting for you. */
+@Serializable
+data class FriendsView(
+    /** Give this to someone so they can add you. */
+    val friendCode: String,
+    val friends: List<Friend> = emptyList(),
+    /** People who want to be your friend. */
+    val requests: List<Friend> = emptyList(),
+    /** People you asked who haven't answered yet. */
+    val sent: List<Friend> = emptyList(),
+    val invites: List<GameInvite> = emptyList(),
+    /** People you played with recently who aren't your friends yet, newest first. */
+    val recent: List<Friend> = emptyList(),
+)
+
+/** Add someone by their friend code, or someone you've played with by their player id. */
+@Serializable
+data class AddFriendRequest(val code: String? = null, val playerId: String? = null)
+
+/** Invite friends to a lobby you're in. */
+@Serializable
+data class InviteRequest(val playerIds: List<String>)
+
 object Limits {
     const val NAME_MAX = 20
     const val CODE_LENGTH = 6
@@ -235,6 +283,12 @@ object Limits {
 
     /** Public lobbies one player may have listed at once. */
     const val OPEN_GAMES_PER_HOST = 3
+
+    const val FRIEND_CODE_LENGTH = 8
+    const val FRIENDS_MAX = 200
+
+    /** Unanswered friend requests one player may have sent, or be sent, at once. */
+    const val FRIEND_REQUESTS_MAX = 50
 }
 
 /** The time limits offered per turn, in seconds (0 is no limit), and the default for each pace. */

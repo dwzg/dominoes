@@ -186,6 +186,8 @@ private fun Panel(state: PuzzleUiState, p: Puzzle, onTapTile: (de.wtzg.domino.en
                     dimmed = legal.none { it.tile == t },
                     elevation = 2.dp,
                     onClick = { onTapTile(t) },
+                    selected = t == state.selected,
+                    stateDescription = if (legal.none { it.tile == t }) "Doesn't fit" else null,
                 )
             }
         }

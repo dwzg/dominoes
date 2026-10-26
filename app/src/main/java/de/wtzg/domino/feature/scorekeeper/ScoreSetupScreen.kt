@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,6 +43,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import de.wtzg.domino.ui.components.SwitchRow
 import de.wtzg.domino.ui.components.rememberSaveableTextList
 
 private const val MIN_PLAYERS = 2
@@ -184,24 +183,13 @@ fun ScoreSetupScreen(
                     FilterChip(selected = starter == i, onClick = { starter = i }, label = { Text(n) })
                 }
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .toggleable(value = rotate, onValueChange = { rotate = it }, role = Role.Switch)
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Rotate every round", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        if (rotate) "The start moves to the next player each round."
-                        else "The winner of each round starts the next one.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = rotate, onCheckedChange = null)
-            }
+            SwitchRow(
+                title = "Rotate every round",
+                subtitle = if (rotate) "The start moves to the next player each round." else "The winner of each round starts the next one.",
+                checked = rotate,
+                onCheckedChange = { rotate = it },
+                titleStyle = MaterialTheme.typography.bodyLarge,
+            )
 
             Spacer(Modifier.height(8.dp))
             Button(

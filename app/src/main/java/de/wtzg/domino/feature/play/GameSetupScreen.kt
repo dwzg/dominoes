@@ -27,7 +27,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,6 +45,7 @@ import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.engine.Rules
 import de.wtzg.domino.ui.components.CustomTargetDialog
 import de.wtzg.domino.ui.components.ModeArt
+import de.wtzg.domino.ui.components.SwitchRow
 
 /** Rules in a few lines, shown before you start. */
 fun GameMode.rulesSummary(): String = when (this) {
@@ -153,17 +153,12 @@ fun GameSetupScreen(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Coach", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Rates every move you make and explains a better one",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = coach, onCheckedChange = { coach = it })
-            }
+            SwitchRow(
+                title = "Coach",
+                subtitle = "Rates every move you make and explains a better one",
+                checked = coach,
+                onCheckedChange = { coach = it },
+            )
 
             Spacer(Modifier.height(8.dp))
             Button(

@@ -21,8 +21,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -77,6 +80,10 @@ fun DominoTile(
     dimmed: Boolean = false,
     elevation: Dp = 0.dp,
     onClick: (() -> Unit)? = null,
+    /** Read out whether the tile is picked, for tiles that can be (e.g. in your hand). */
+    selected: Boolean? = null,
+    /** Read out after the tile's numbers, e.g. "doesn't fit". */
+    stateDescription: String? = null,
 ) {
     val face = LocalTileFace.current
     val shape = RoundedCornerShape(half * 0.18f)
@@ -89,8 +96,12 @@ fun DominoTile(
             .clip(shape)
             .background(if (faceDown) Back else Ivory)
             .border(if (highlighted) 3.dp else 1.dp, ring, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .semantics { contentDescription = if (faceDown) "Hidden tile" else "$first-$second" },
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .semantics {
+                contentDescription = if (faceDown) "Hidden tile" else "$first-$second"
+                stateDescription?.let { this.stateDescription = it }
+                selected?.let { this.selected = it }
+            },
     ) {
         if (faceDown) {
             Canvas(Modifier.fillMaxSize()) {

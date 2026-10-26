@@ -3,7 +3,6 @@ package de.wtzg.domino.feature.more
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,7 +31,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +63,7 @@ import de.wtzg.domino.ui.components.DominoTile
 import de.wtzg.domino.ui.components.SectionHeader
 import de.wtzg.domino.ui.components.TabTopBar
 import de.wtzg.domino.ui.components.StatTile
+import de.wtzg.domino.ui.components.SwitchRow
 import de.wtzg.domino.ui.theme.colors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -173,7 +175,7 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
                 }
             }
             Setting("Table") {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Felt.entries.forEach { f -> FeltSwatch(f, s.felt == f) { update { it.copy(felt = f) } } }
                 }
             }
@@ -187,8 +189,8 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
                         ) { Text(f.label) }
                     }
                 }
-                // A sample, so you can see the style before playing.
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // A sample, so you can see the style before playing. Screen readers skip it.
+                Row(Modifier.clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(6 to 1, 5 to 2, 4 to 3, 0 to 0).forEach { (a, b) ->
                         DominoTile(a, b, vertical = false, half = 22.dp, elevation = 1.dp)
                     }
@@ -256,13 +258,7 @@ private fun Setting(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun SwitchSetting(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
+    SwitchRow(title = title, subtitle = subtitle, checked = checked, onCheckedChange = onChange)
 }
 
 @Composable
@@ -275,7 +271,7 @@ private fun FeltSwatch(felt: Felt, selected: Boolean, onClick: () -> Unit) {
             .clip(CircleShape)
             .background(Brush.radialGradient(listOf(c.center, c.edge)), CircleShape)
             .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Gray, CircleShape)
-            .clickable(role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .semantics { contentDescription = "${felt.label} table" },
         contentAlignment = Alignment.Center,
     ) {

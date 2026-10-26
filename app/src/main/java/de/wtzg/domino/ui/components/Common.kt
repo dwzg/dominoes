@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.wtzg.domino.engine.GameMode
@@ -63,9 +64,10 @@ fun GameMode.illustration(): List<Tile> = when (this) {
     GameMode.ALL_THREES -> listOf(Tile(3, 3), Tile(3, 6))
 }
 
+/** Decoration only, so screen readers skip it. */
 @Composable
 fun ModeArt(mode: GameMode, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Row(modifier.clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         mode.illustration().forEach { DominoTile(it.a, it.b, half = 14.dp, elevation = 1.dp) }
     }
 }

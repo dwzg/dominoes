@@ -494,15 +494,22 @@ private fun Hand(
         ) {
             hand.forEachIndexed { i, t ->
                 key(deal, t) {
+                    val fits = table.legal.any { it.tile == t }
+                    val hinted = t == table.hint?.move?.tile
                     HandTile(
                         tile = t,
                         index = i,
                         dealDelay = if (newHand) HAND_DEAL_MS else 0L,
                         half = half,
                         selected = t == table.selected,
-                        hinted = t == table.hint?.move?.tile,
+                        hinted = hinted,
+                        stateDescription = when {
+                            table.yourTurn && !fits -> "Doesn't fit"
+                            hinted -> "Hint"
+                            else -> null
+                        },
                         dimmed = if (table.yourTurn) {
-                            table.legal.none { it.tile == t }
+                            !fits
                         } else {
                             // Someone else is to move; not at the end of a hand.
                             dimWhileWaiting && table.overlay == null
@@ -524,6 +531,7 @@ private fun HandTile(
     half: Dp,
     selected: Boolean,
     hinted: Boolean,
+    stateDescription: String?,
     dimmed: Boolean,
     onClick: () -> Unit,
 ) {
@@ -542,6 +550,8 @@ private fun HandTile(
         elevation = if (selected) 8.dp else 2.dp,
         // Ignore taps until the tile has dealt in, so nothing is played unseen.
         onClick = { if (appear.value > 0.5f) onClick() },
+        selected = selected,
+        stateDescription = stateDescription,
         modifier = Modifier.graphicsLayer {
             val p = appear.value
             alpha = p.coerceIn(0f, 1f)

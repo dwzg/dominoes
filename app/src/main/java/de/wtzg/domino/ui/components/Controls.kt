@@ -37,10 +37,10 @@ import androidx.compose.ui.unit.dp
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.engine.Tile
 
-/** A small heading above a setting, e.g. "Play to". */
+/** A small heading above a setting, e.g. "Play to", with [gapAbove] to set it off from the one before. */
 @Composable
-fun Label(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.titleSmall, modifier = modifier.padding(top = 8.dp))
+fun Label(text: String, modifier: Modifier = Modifier, gapAbove: Dp = 8.dp) {
+    Text(text, style = MaterialTheme.typography.titleSmall, modifier = modifier.padding(top = gapAbove))
 }
 
 /** Pick one of a few [options], shown as a full-width segmented row. */

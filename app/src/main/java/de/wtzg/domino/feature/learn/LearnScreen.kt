@@ -29,12 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.wtzg.domino.data.Stats
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.ui.components.SectionHeader
 import de.wtzg.domino.ui.components.TabTopBar
+import de.wtzg.domino.ui.components.TipCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,17 +59,7 @@ fun LearnScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item { PuzzleCard(stats, onPuzzle) }
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Tip", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        Text(tip)
-                    }
-                }
-            }
+            item { TipCard(tip) }
             item {
                 SectionHeader("Lessons")
                 Text(

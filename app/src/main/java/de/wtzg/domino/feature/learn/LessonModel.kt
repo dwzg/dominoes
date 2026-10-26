@@ -24,7 +24,8 @@ sealed interface LessonBlock {
      * With [spinner] the opening double can be built on from four sides (Fives/Threes).
      */
     data class Table(val plays: List<Move>, val caption: String, val spinner: Boolean = false) : LessonBlock {
-        val board: Board get() = plays.fold(Board(spinnerAllowed = spinner)) { b, m -> b.play(m) }
+        /** Built once, when first drawn; it isn't part of equality. */
+        val board: Board by lazy { plays.fold(Board(spinnerAllowed = spinner)) { b, m -> b.play(m) } }
     }
 
     data class Tip(val text: String) : LessonBlock

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import de.wtzg.domino.data.SavedGame
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.ui.components.ModeArt
+import de.wtzg.domino.ui.components.NavCard
 import de.wtzg.domino.ui.components.SectionHeader
 import de.wtzg.domino.ui.components.TabTopBar
 
@@ -63,53 +64,34 @@ fun PlayHomeScreen(
                 item { ContinueCard(saved, onContinue) }
             }
             item {
-                Card(
+                NavCard(
+                    title = "Play with friends",
+                    text = "Online, live or turn by turn. Invite with a code.",
                     onClick = onOnline,
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Groups, contentDescription = null)
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Text("Play with friends", style = MaterialTheme.typography.titleMedium)
-                            Text("Online, live or turn by turn. Invite with a code.", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                    }
-                }
+                    icon = Icons.Outlined.Groups,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
             item {
-                Card(
+                NavCard(
+                    title = "Same Wi-Fi",
+                    text = "At one table, each on your own phone. No internet needed.",
                     onClick = onLocal,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Wifi, contentDescription = null)
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                            Text("Same Wi-Fi", style = MaterialTheme.typography.titleMedium)
-                            Text("At one table, each on your own phone. No internet needed.", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                    }
-                }
+                    icon = Icons.Outlined.Wifi,
+                )
             }
             item { SectionHeader("Play against the computer") }
             items(GameMode.entries) { mode -> ModeCard(mode) { onPickMode(mode) } }
             item {
-                Card(
+                NavCard(
+                    title = "New to dominoes?",
+                    text = "Short lessons, puzzles and a coach that explains every move. Open the Learn tab.",
                     onClick = onLearn,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("New to dominoes?", style = MaterialTheme.typography.titleMedium)
-                        Text("Short lessons, puzzles and a coach that explains every move. Open the Learn tab.")
-                    }
-                }
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    arrow = false,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
             }
         }
     }

@@ -31,9 +31,6 @@ import kotlinx.coroutines.launch
 
 const val YOU = 0
 
-/** Names around the table, clockwise from you. */
-val SEAT_NAMES = listOf("You", "Rosa", "Hank", "Mabel")
-
 enum class NoteKind { GOOD, TIP, INFO }
 
 data class CoachNote(val kind: NoteKind, val title: String, val text: String)
@@ -220,7 +217,7 @@ class GameViewModel(
                     NoteKind.INFO,
                     "You drew $drawn",
                     (if (next.match.round.canDraw) "Still nothing fits. Draw again. " else "") +
-                        "$who you have no ${numbers(r.board.openValues)}.",
+                        "$who you have no ${numbersText(r.board.openValues)}.",
                 ),
             )
         }
@@ -295,7 +292,7 @@ class GameViewModel(
         val r = g.match.round
         val move = Strategy.chooseMove(r, g.options.difficulty)
         val line = StringBuilder(name)
-        if (drawn > 0) line.append(" drew $drawn (no ${numbers(ends)}) and")
+        if (drawn > 0) line.append(" drew $drawn (no ${numbersText(ends)}) and")
         var badge: TableBadge? = null
         if (move != null) {
             val points = r.pointsFor(move)
@@ -306,7 +303,7 @@ class GameViewModel(
             }
             g = g.copy(match = g.match.play(move))
         } else {
-            line.append(" passed (no ${numbers(r.board.openValues)})")
+            line.append(" passed (no ${numbersText(r.board.openValues)})")
             g = g.copy(match = g.match.pass())
         }
         line.append('.')
@@ -382,12 +379,7 @@ class GameViewModel(
     }
 
     companion object {
-        fun numbers(values: List<Int>): String {
-            val d = values.distinct()
-            return when (d.size) {
-                1 -> "${d[0]}s"
-                else -> d.dropLast(1).joinToString(", ") { "${it}s" } + " or ${d.last()}s"
-            }
-        }
+        /** Kept until the online table uses [numbersText] directly. */
+        fun numbers(values: List<Int>): String = numbersText(values)
     }
 }

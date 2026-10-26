@@ -28,9 +28,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -59,7 +56,10 @@ import de.wtzg.domino.data.Stats
 import de.wtzg.domino.data.ThemeMode
 import de.wtzg.domino.data.TileFace
 import de.wtzg.domino.engine.GameMode
+import de.wtzg.domino.ui.components.ChoiceRow
+import de.wtzg.domino.ui.components.ConfirmDialog
 import de.wtzg.domino.ui.components.DominoTile
+import de.wtzg.domino.ui.components.Label
 import de.wtzg.domino.ui.components.SectionHeader
 import de.wtzg.domino.ui.components.TabTopBar
 import de.wtzg.domino.ui.components.StatTile
@@ -101,12 +101,12 @@ fun MoreScreen(
     }
 
     if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text("Reset your stats?") },
-            text = { Text("Wins, coach accuracy and puzzle results are cleared. Score keeper games and lessons read are kept.") },
-            confirmButton = { TextButton(onClick = { confirmReset = false; onResetStats() }) { Text("Reset") } },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            title = "Reset your stats?",
+            text = "Wins, coach accuracy and puzzle results are cleared. Score keeper games and lessons read are kept.",
+            confirmLabel = "Reset",
+            onConfirm = { confirmReset = false; onResetStats() },
+            onDismiss = { confirmReset = false },
         )
     }
 }
@@ -159,15 +159,7 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Setting("Theme") {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    ThemeMode.entries.forEachIndexed { i, t ->
-                        SegmentedButton(
-                            selected = s.theme == t,
-                            onClick = { update { it.copy(theme = t) } },
-                            shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
-                        ) { Text(t.label) }
-                    }
-                }
+                ChoiceRow(ThemeMode.entries, s.theme, label = { it.label }, onSelect = { t -> update { it.copy(theme = t) } })
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 SwitchSetting("Wallpaper colours", "Use Material You colours instead of the table green", s.dynamicColor) { v ->
@@ -180,15 +172,7 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
                 }
             }
             Setting("Tiles") {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    TileFace.entries.forEachIndexed { i, f ->
-                        SegmentedButton(
-                            selected = s.tileFace == f,
-                            onClick = { update { it.copy(tileFace = f) } },
-                            shape = SegmentedButtonDefaults.itemShape(i, TileFace.entries.size),
-                        ) { Text(f.label) }
-                    }
-                }
+                ChoiceRow(TileFace.entries, s.tileFace, label = { it.label }, onSelect = { f -> update { it.copy(tileFace = f) } })
                 // A sample, so you can see the style before playing. Screen readers skip it.
                 Row(Modifier.clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(6 to 1, 5 to 2, 4 to 3, 0 to 0).forEach { (a, b) ->
@@ -200,15 +184,7 @@ private fun SettingsSection(s: Settings, update: ((Settings) -> Settings) -> Uni
                 update { it.copy(dimHandWhileWaiting = v) }
             }
             Setting("Computer speed") {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    AiSpeed.entries.forEachIndexed { i, a ->
-                        SegmentedButton(
-                            selected = s.aiSpeed == a,
-                            onClick = { update { it.copy(aiSpeed = a) } },
-                            shape = SegmentedButtonDefaults.itemShape(i, AiSpeed.entries.size),
-                        ) { Text(a.label) }
-                    }
-                }
+                ChoiceRow(AiSpeed.entries, s.aiSpeed, label = { it.label }, onSelect = { a -> update { it.copy(aiSpeed = a) } })
             }
             SwitchSetting("Coach on by default", "New games start with move-by-move feedback", s.coach) { v ->
                 update { it.copy(coach = v) }
@@ -248,10 +224,11 @@ private fun ServerSetting(current: String, onSave: (String) -> Unit) {
     }
 }
 
+/** A titled group of controls. The card already spaces the groups, so the title needs no gap of its own. */
 @Composable
 private fun Setting(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
+        Label(title, gapAbove = 0.dp)
         content()
     }
 }

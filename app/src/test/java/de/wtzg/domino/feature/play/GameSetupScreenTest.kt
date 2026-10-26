@@ -25,7 +25,7 @@ class GameSetupScreenTest {
         rule.setContent {
             GameSetupScreen(GameMode.DRAW, defaultCoach = true, hasGameInProgress = false, onBack = {}, onStart = { _, _ -> })
         }
-        rule.onNodeWithText("60 · Red Dead").performScrollTo().assertExists()
+        rule.onNodeWithText("60 · Standard").performScrollTo().assertExists()
         rule.onNodeWithText("Custom").performScrollTo().assertExists()
     }
 

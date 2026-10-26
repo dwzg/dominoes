@@ -143,7 +143,7 @@ fun GameSetupScreen(
                     FilterChip(
                         selected = target == t,
                         onClick = { target = t },
-                        label = { Text(if (t == mode.defaultTarget) "$t · Red Dead" else "$t") },
+                        label = { Text(if (t == mode.defaultTarget) "$t · Standard" else "$t") },
                     )
                 }
                 FilterChip(

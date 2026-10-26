@@ -13,7 +13,7 @@ An Android app for playing, learning and keeping score in dominoes.
 | All Fives | Score whenever the open ends add up to a multiple of 5. The opening double is a spinner (four sides). | 100 |
 | All Threes | Like All Fives with multiples of 3. | 90 |
 
-- The default targets and scoring follow the domino tables in **Red Dead Redemption 2**, as described in player guides. Fives and Threes round end-of-hand points to the nearest 5 or 3, and the match ends the moment someone reaches the target.
+- Each game has a usual default target, or pick any target you like. Fives and Threes round end-of-hand points to the nearest 5 or 3, and the match ends the moment someone reaches the target.
 - A coach rates your moves and explains better ones. There's also a Hint button and a running log of what the other players revealed by drawing or passing.
 - The table is laid out like a real one, with snaking lines, crosswise doubles and a spinner cross. It animates as tiles are played.
 - A match in progress is saved, so you can leave and resume it later.
@@ -30,7 +30,7 @@ An Android app for playing, learning and keeping score in dominoes.
 - Works like online play otherwise: lobby settings, time per turn, rematch.
 
 **Learn**
-- 20 lessons across five sections: basics, strategy, scoring games, advanced play and Red Dead Redemption 2.
+- 20 lessons across four sections: basics, strategy, scoring games and advanced play.
 - "Find the best move" puzzles, taken from real games between strong AIs.
 - A tip of the day.
 
@@ -83,5 +83,3 @@ To publish a release, go to **Actions → Release → Run workflow** and enter a
 The app connects to the server set as `dominoServerUrl` in `gradle.properties`, currently `https://dominoes.convoluted.space`. Players can change it under More → Settings.
 
 Every push also builds a test APK as the `domino-apk` artifact of the **Build APK** run. It's signed with a temporary key, so it can't update a release.
-
-Not affiliated with Rockstar Games.

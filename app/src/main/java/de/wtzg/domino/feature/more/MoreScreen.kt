@@ -294,14 +294,8 @@ private fun AboutSection() {
             Text("Dominoes ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleSmall)
             Text(
                 "Draw, Block, All Fives and All Threes with a double-six set, for 2 to 4 players. " +
-                    "Default targets follow the domino tables in Red Dead Redemption 2 as described in player guides: " +
-                    "Draw and Block to 60, All Fives to 100, All Threes to 90.",
+                    "Default targets: Draw and Block to 60, All Fives to 100, All Threes to 90.",
                 style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "Not affiliated with Rockstar Games.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

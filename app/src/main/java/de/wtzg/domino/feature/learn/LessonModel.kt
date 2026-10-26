@@ -11,7 +11,6 @@ enum class LessonCategory(val title: String) {
     STRATEGY("Strategy"),
     SCORING("Scoring games"),
     ADVANCED("Advanced"),
-    RED_DEAD("Red Dead Redemption 2"),
 }
 
 sealed interface LessonBlock {

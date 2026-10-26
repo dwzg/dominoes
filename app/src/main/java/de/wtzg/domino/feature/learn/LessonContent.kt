@@ -3,7 +3,6 @@ package de.wtzg.domino.feature.learn
 import de.wtzg.domino.engine.GameMode
 import de.wtzg.domino.feature.learn.LessonCategory.ADVANCED
 import de.wtzg.domino.feature.learn.LessonCategory.BASICS
-import de.wtzg.domino.feature.learn.LessonCategory.RED_DEAD
 import de.wtzg.domino.feature.learn.LessonCategory.SCORING
 import de.wtzg.domino.feature.learn.LessonCategory.STRATEGY
 
@@ -611,29 +610,29 @@ object Lessons {
     )
 
     // ---------------------------------------------------------------------------------------------
-    // RED DEAD REDEMPTION 2
+    // THE FOUR GAMES
     // ---------------------------------------------------------------------------------------------
 
-    private val redDead = Lesson(
-        id = "rdr2-tables",
-        category = RED_DEAD,
-        title = "Dominoes in Red Dead Redemption 2",
-        summary = "The four table games from RDR2, and how to win them here and there.",
+    private val fourGames = Lesson(
+        id = "four-games",
+        category = SCORING,
+        title = "The four games and their targets",
+        summary = "Draw, Block, All Fives and All Threes side by side, and how to win each.",
         practice = GameMode.ALL_FIVES,
         blocks = listOf(
             LessonBlock.Text(
-                "Red Dead Redemption 2 offers four domino games: Draw, Block, All Fives and All Threes. " +
-                    "All four are in this app, with the targets the game uses according to guides as the defaults.",
+                "This app has four domino games: Draw, Block, All Fives and All Threes, each with a usual target as the default. " +
+                    "You can pick another target, or any score you like, before a game.",
             ),
             LessonBlock.Text(
-                "Draw: first to 60 (some guides say 100), scored only at the end of each round. " +
+                "Draw: first to 60, scored only at the end of each round. " +
                     "Block: the same, but you pass instead of drawing. All Fives: first to 100, you score during play " +
                     "when the open ends make a multiple of 5, and round-end points are rounded to the nearest 5. " +
                     "All Threes: first to 90, multiples of 3, rounded to the nearest 3.",
             ),
             LessonBlock.Text(
-                "As in RDR2, the highest double opens, doubles are placed crosswise, and the first double is a spinner " +
-                    "that branches in four directions once both its sides are played.",
+                "In all four, the highest double opens, doubles are placed crosswise, and in Fives and Threes the first " +
+                    "double is a spinner that branches in four directions once both its sides are played.",
             ),
             // ends: west = untouched side of the 5|5 spinner counts 10, east 0 (5|0 on 5) -> 10 + 0 = 10 -> scores 10
             LessonBlock.Table(
@@ -642,11 +641,11 @@ object Lessons {
                 spinner = true,
             ),
             LessonBlock.Text(
-                "Tips for those tables: count your pips and dump heavy tiles early. Play doubles before they get stranded. " +
+                "Tips for every table: count your pips and dump heavy tiles early. Play doubles before they get stranded. " +
                     "Remember what your opponents drew or passed on. In Fives and Threes, look for a scoring play first, " +
                     "and don't leave an easy count for the next player.",
             ),
-            LessonBlock.Tip("Practise on Hard here: that AI counts tiles and remembers your passes, so it punishes careless play."),
+            LessonBlock.Tip("Practise on Hard: that computer player counts tiles and remembers your passes, so it punishes careless play."),
         ),
     )
 
@@ -670,7 +669,7 @@ object Lessons {
         advancedMultiplayer,
         advancedBlock,
         advancedBlockOnPurpose,
-        redDead,
+        fourGames,
     )
 
     fun byId(id: String): Lesson? = all.firstOrNull { it.id == id }

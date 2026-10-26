@@ -3,7 +3,7 @@ package de.wtzg.domino.engine
 import kotlinx.serialization.Serializable
 
 /**
- * The supported games. Targets default to the ones used at Red Dead Redemption 2's tables.
+ * The supported games, each with its usual target as the default.
  *
  * @property drawsFromBoneyard players who can't play draw (Draw, Fives, Threes) instead of passing (Block)
  * @property scoringMultiple points are scored during play when the open ends total a multiple of this (0 = never)

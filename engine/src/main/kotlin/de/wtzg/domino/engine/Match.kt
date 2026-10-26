@@ -24,14 +24,27 @@ data class Match(
             banked[i] + round.points[i] + (round.result?.takeIf { it.winner == i }?.endPoints ?: 0)
         }
 
-    fun play(move: Move): Match = after(round.play(move))
-    fun draw(): Match = after(round.draw())
-    fun pass(): Match = after(round.pass())
+    // Once someone has won, more plays could change the scores and the winner.
+    fun play(move: Move): Match {
+        check(!isOver) { "Match over" }
+        return after(round.play(move))
+    }
+
+    fun draw(): Match {
+        check(!isOver) { "Match over" }
+        return after(round.draw())
+    }
+
+    fun pass(): Match {
+        check(!isOver) { "Match over" }
+        return after(round.pass())
+    }
 
     private fun after(r: Round): Match {
         val m = copy(round = r)
         val s = m.scores
         val top = s.max()
+        // A tie at the top isn't a win: play goes on, into the next hand if need be.
         val reached = top >= rules.target && s.count { it == top } == 1
         // Mid-hand wins only happen in scoring games; otherwise wait for the hand to end.
         return if (reached && (r.isOver || rules.mode.scoresDuringPlay)) m.copy(winner = s.indexOf(top)) else m

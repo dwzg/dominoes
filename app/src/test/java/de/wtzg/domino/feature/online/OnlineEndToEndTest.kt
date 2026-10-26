@@ -33,6 +33,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.delay
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -52,6 +55,7 @@ class OnlineEndToEndTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before fun setUp() {
+        Dispatchers.setMain(Dispatchers.Unconfined)
         server = embeddedServer(Netty, port = 0, host = "127.0.0.1") { dominoServer(GameService(InMemoryStore()), LiveHub()) }.start()
         val port = runBlocking { server.engine.resolvedConnectors().first().port }
         url = "http://127.0.0.1:$port"
@@ -61,6 +65,7 @@ class OnlineEndToEndTest {
         scope.cancel()
         // Some tests stop the server themselves.
         runCatching { server.stop(100, 500) }
+        Dispatchers.resetMain()
     }
 
     private fun phone(name: String): OnlineRepository {
@@ -266,5 +271,49 @@ class OnlineEndToEndTest {
         ann.api().invite(next.id, listOf(bobId))
         assertTrue(bob.api().declineInvite(next.id).invites.isEmpty())
         assertTrue(ann.api().game(next.id).invited.isEmpty())
+    }
+
+    private suspend fun <T> eventually(read: () -> T?): T = withTimeout(10_000) {
+        var value = read()
+        while (value == null) {
+            delay(20)
+            value = read()
+        }
+        value
+    }
+
+    @Test
+    fun aGuestNoticesWhenTheHostCancels() = runBlocking {
+        val ann = phone("ann-cancel")
+        val bob = phone("bob-cancel")
+        ann.register("Ann")
+        bob.register("Bob")
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        bob.api().join(lobby.code)
+
+        val bobVm = OnlineGameViewModel(lobby.id, bob)
+        val live = scope.launch { bobVm.stayConnected() }
+        eventually { bobVm.state.value.view }
+        ann.api().act(lobby.id, Action.Leave, 0)
+        eventually { bobVm.state.value.gone.takeIf { it } }
+        live.cancel()
+    }
+
+    @Test
+    fun aChallengeInvitesTheFriendFromTheLobby() = runBlocking {
+        val ann = phone("ann-challenge")
+        val bob = phone("bob-challenge")
+        ann.register("Ann")
+        bob.register("Bob")
+        bob.api().addFriend(ann.api().friends().friendCode)
+        val bobId = ann.api().friends().requests.single().playerId
+        ann.api().acceptFriend(bobId)
+
+        val lobby = ann.api().create(CreateGameRequest(GameMode.DRAW, players = 2, target = 60, pace = Pace.LIVE))
+        val annVm = OnlineGameViewModel(lobby.id, ann, invite = bobId)
+        val live = scope.launch { annVm.stayConnected() }
+        eventually { annVm.state.value.view?.invited?.takeIf { it.isNotEmpty() } }
+        assertEquals(lobby.id, bob.api().friends().invites.single().gameId)
+        live.cancel()
     }
 }

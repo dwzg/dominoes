@@ -2,24 +2,35 @@ package de.wtzg.domino.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.migrations.SharedPreferencesMigration
 import androidx.datastore.migrations.SharedPreferencesView
+import androidx.datastore.preferences.SharedPreferencesMigration as PrefsMigration
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import de.wtzg.domino.engine.GameMode
 import kotlinx.serialization.json.Json
-import androidx.datastore.preferences.SharedPreferencesMigration as PrefsMigration
 
-/** One JSON setup for everything the app stores. Unknown keys are ignored so old data keeps loading. */
+/**
+ * One JSON setup for everything the app stores. Unknown keys are ignored so old data keeps
+ * loading, and a value this version doesn't know (say, a setting from a newer version) falls
+ * back to that field's default instead of failing the whole object.
+ */
 internal val AppJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
+    coerceInputValues = true
 }
+
+/** A file that can't be read at all starts over empty, rather than crashing on every launch. */
+private fun startOver() = ReplaceFileCorruptionHandler { emptyPreferences() }
 
 /** Score keeper data. Version 1 kept the same keys in SharedPreferences "domino"; they're copied over once. */
 internal val Context.scoreKeeperStore: DataStore<Preferences> by preferencesDataStore(
     name = "scorekeeper",
+    corruptionHandler = startOver(),
     produceMigrations = { context -> listOf(PrefsMigration(context, "domino")) },
 )
 
@@ -28,6 +39,7 @@ internal val STATS_KEY = stringPreferencesKey("stats")
 /** Settings, stats and the saved match. Version 1 training stats are folded into the Draw stats once. */
 internal val Context.appStore: DataStore<Preferences> by preferencesDataStore(
     name = "app",
+    corruptionHandler = startOver(),
     produceMigrations = { context ->
         listOf(
             SharedPreferencesMigration(

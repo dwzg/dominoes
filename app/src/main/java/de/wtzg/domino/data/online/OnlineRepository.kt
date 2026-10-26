@@ -59,6 +59,30 @@ class OnlineRepository(
         return reg
     }
 
+    /**
+     * Makes sure you're known on the current server as [name]: registers if needed, renames
+     * if the name changed, and registers again if the server has forgotten you (a phone that
+     * hosted before, or a server whose data was reset).
+     */
+    suspend fun signIn(name: String) {
+        val reg = account.first().registration
+        if (reg != null) {
+            try {
+                if (reg.name != name.trim()) rename(name) else api().games()
+                return
+            } catch (e: OnlineException) {
+                if (e.status != 401) throw e
+            }
+        }
+        register(name)
+    }
+
+    /** After a 401: the server has forgotten you, so register again under the same name. */
+    suspend fun registerAgain(): Registration? {
+        val name = account.first().registration?.name ?: return null
+        return register(name)
+    }
+
     suspend fun rename(name: String) {
         val a = account.first()
         val reg = a.registration ?: return

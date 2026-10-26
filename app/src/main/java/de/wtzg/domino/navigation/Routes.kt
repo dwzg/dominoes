@@ -30,7 +30,12 @@ import kotlinx.serialization.Serializable
  * One online game; also opened from notifications (dominoes://game/ID). [local] games are
  * hosted on a phone on the same Wi-Fi rather than on the online server.
  */
-@Serializable data class OnlineGameRoute(val id: String, val local: Boolean = false)
+@Serializable data class OnlineGameRoute(
+    val id: String,
+    val local: Boolean = false,
+    /** A friend to invite as soon as the lobby opens: the challenge they were picked for. */
+    val invite: String? = null,
+)
 
 /** Games on the same Wi-Fi. [server] and [code] come from an invite to a game hosted on a phone. */
 @Serializable data class LocalRoute(val server: String? = null, val code: String? = null)

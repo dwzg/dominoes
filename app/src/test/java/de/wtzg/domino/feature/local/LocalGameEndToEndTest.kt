@@ -94,4 +94,23 @@ class LocalGameEndToEndTest {
         eventually { if (host.url.value == null) true else null }
         Unit
     }
+
+    @Test
+    fun hostingAgainAtTheSameAddressStartsAfresh() = runBlocking {
+        val ann = phone("ann-again")
+        val annVm = LocalViewModel(ann.repo, ann.server, host, ann.settings)
+        eventually { annVm.state.value.name }
+        annVm.setName("Ann")
+        annVm.host()
+        eventually { annVm.state.value.create.takeIf { it } }
+        annVm.created()
+        annVm.stopHosting()
+        eventually { if (host.url.value == null && !annVm.state.value.busy) true else null }
+
+        // A new hosting knows nobody; the identity saved for this address is replaced, not reused.
+        annVm.host()
+        eventually { annVm.state.value.create.takeIf { it } ?: annVm.state.value.error?.let { error(it) } }
+        assertNull(annVm.state.value.error)
+        assertEquals(GameStatus.LOBBY, ann.repo.api().create(CreateGameRequest(GameMode.DRAW, 2, 60, Pace.LIVE)).status)
+    }
 }

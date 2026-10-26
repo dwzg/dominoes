@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: the same as data_extraction_rules.xml. -->
+<full-backup-content>
+    <include domain="file" path="datastore/" />
+    <!-- Data from version 1, still waiting to be moved over. -->
+    <include domain="sharedpref" path="." />
+</full-backup-content>

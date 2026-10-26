@@ -25,6 +25,8 @@ import de.wtzg.domino.DominoApplication
 import de.wtzg.domino.MainActivity
 import de.wtzg.domino.R
 import de.wtzg.domino.data.online.OnlineException
+import de.wtzg.domino.protocol.FriendsView
+import de.wtzg.domino.protocol.GameSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -54,30 +56,9 @@ class TurnCheckWorker(context: Context, params: WorkerParameters) : CoroutineWor
         } catch (_: OnlineException) {
             null
         }
-        val seen = repo.notified()
-        val due = games.filter { it.isYourTurn && (seen[it.id] ?: -1) < it.version }
-        val invites = friends?.invites?.map { inviteKey(it.gameId) to it }
-        val requests = friends?.requests?.map { friendKey(it.playerId) to it }
-        if (!foreground) {
-            due.forEach { g ->
-                val others = g.seats.filterIndexed { i, _ -> i != g.yourSeat }.joinToString(", ")
-                notify(g.id, "Your turn in ${g.mode.title}", "Playing with $others", "dominoes://game/${g.id}", TURNS)
-            }
-            invites.orEmpty().filter { it.first !in seen }.forEach { (key, i) ->
-                notify(key, "${i.from} invites you to ${i.mode.title}", "Tap to join or decline", "dominoes://online", FRIENDS)
-            }
-            requests.orEmpty().filter { it.first !in seen }.forEach { (key, p) ->
-                notify(key, "${p.name} wants to be your friend", "Tap to answer", "dominoes://friends", FRIENDS)
-            }
-        }
-        // Forget what's over; remember what we've told you about. If friends couldn't be
-        // checked this time, keep what we knew so nothing is announced twice.
-        val friendKeys = if (friends == null) {
-            seen.filterKeys { it.startsWith(INVITE) || it.startsWith(FRIEND) }
-        } else {
-            (invites.orEmpty() + requests.orEmpty()).associate { it.first to 0 }
-        }
-        repo.setNotified(games.filter { it.isYourTurn }.associate { it.id to it.version } + friendKeys)
+        val plan = planNotices(games, friends, repo.notified(), foreground)
+        plan.notices.forEach { n -> notify(n.key, n.title, n.text, n.link, if (n.turn) TURNS else FRIENDS) }
+        repo.setNotified(plan.seen)
         return Result.success()
     }
 
@@ -104,11 +85,11 @@ class TurnCheckWorker(context: Context, params: WorkerParameters) : CoroutineWor
         private const val TURNS = "turns"
         private const val FRIENDS = "friends"
         private const val WORK = "turn-check"
-        private const val INVITE = "invite:"
-        private const val FRIEND = "friend:"
 
-        private fun inviteKey(gameId: String) = INVITE + gameId
-        private fun friendKey(playerId: String) = FRIEND + playerId
+        /** Takes down the "your turn" notification for [gameId], e.g. once you've opened the game. */
+        fun clearTurnNotice(context: Context, gameId: String) {
+            NotificationManagerCompat.from(context).cancel(gameId.hashCode())
+        }
 
         fun ensureChannel(context: Context) {
             val nm = context.getSystemService(NotificationManager::class.java)
@@ -124,12 +105,51 @@ class TurnCheckWorker(context: Context, params: WorkerParameters) : CoroutineWor
             )
         }
 
-        /** Runs the check every 15 minutes (Android's minimum) while online. */
+        /** Runs the check every 15 minutes (Android's minimum) while online. Changes here reach existing installs too. */
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<TurnCheckWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
     }
+}
+
+/** One notification to post. [key] identifies it, so it's only posted once. */
+data class Notice(val key: String, val title: String, val text: String, val link: String, val turn: Boolean)
+
+/** What to post, and what to remember having told you about. */
+data class NoticePlan(val notices: List<Notice>, val seen: Map<String, Int>)
+
+private const val INVITE = "invite:"
+private const val FRIEND = "friend:"
+
+/**
+ * Decides what to tell you about: your turn in a game (once per move), a friend's invite, or
+ * a friend request (once each). Nothing is posted while the app is open, but it still counts
+ * as seen. Finished games, answered invites and requests are forgotten. If [friends] couldn't
+ * be checked this time, what we knew about them is kept, so nothing is announced twice.
+ */
+fun planNotices(games: List<GameSummary>, friends: FriendsView?, seen: Map<String, Int>, foreground: Boolean): NoticePlan {
+    val turns = games.filter { it.isYourTurn }
+    val invites = friends?.invites.orEmpty().map { (INVITE + it.gameId) to it }
+    val requests = friends?.requests.orEmpty().map { (FRIEND + it.playerId) to it }
+    val notices = if (foreground) emptyList() else buildList {
+        turns.filter { (seen[it.id] ?: -1) < it.version }.forEach { g ->
+            val others = g.seats.filterIndexed { i, _ -> i != g.yourSeat }.joinToString(", ")
+            add(Notice(g.id, "Your turn in ${g.mode.title}", "Playing with $others", "dominoes://game/${g.id}", turn = true))
+        }
+        invites.filter { it.first !in seen }.forEach { (key, i) ->
+            add(Notice(key, "${i.from} invites you to ${i.mode.title}", "Tap to join or decline", "dominoes://online", turn = false))
+        }
+        requests.filter { it.first !in seen }.forEach { (key, p) ->
+            add(Notice(key, "${p.name} wants to be your friend", "Tap to answer", "dominoes://friends", turn = false))
+        }
+    }
+    val friendKeys = if (friends == null) {
+        seen.filterKeys { it.startsWith(INVITE) || it.startsWith(FRIEND) }
+    } else {
+        (invites + requests).associate { it.first to 0 }
+    }
+    return NoticePlan(notices, turns.associate { it.id to it.version } + friendKeys)
 }

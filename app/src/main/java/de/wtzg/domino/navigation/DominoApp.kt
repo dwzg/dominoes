@@ -1,6 +1,9 @@
 package de.wtzg.domino.navigation
 
+import android.content.Intent
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -19,14 +22,15 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import android.content.Intent
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.util.Consumer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavDeepLinkRequest
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -37,11 +41,19 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import androidx.navigation.toRoute
-import kotlinx.coroutines.flow.Flow
+import de.wtzg.domino.AppViewModel
+import de.wtzg.domino.data.Settings
 import de.wtzg.domino.data.local.LocalInvite
 import de.wtzg.domino.data.local.isLocalNetworkAddress
+import de.wtzg.domino.engine.GameMode
+import de.wtzg.domino.feature.learn.LearnScreen
+import de.wtzg.domino.feature.learn.LessonScreen
+import de.wtzg.domino.feature.learn.PuzzleScreen
+import de.wtzg.domino.feature.learn.PuzzleViewModel
 import de.wtzg.domino.feature.local.LocalScreen
 import de.wtzg.domino.feature.local.LocalViewModel
+import de.wtzg.domino.feature.more.MoreScreen
+import de.wtzg.domino.feature.online.CreateGameViewModel
 import de.wtzg.domino.feature.online.FriendsScreen
 import de.wtzg.domino.feature.online.FriendsViewModel
 import de.wtzg.domino.feature.online.OnlineCreateScreen
@@ -49,14 +61,6 @@ import de.wtzg.domino.feature.online.OnlineGameScreen
 import de.wtzg.domino.feature.online.OnlineGameViewModel
 import de.wtzg.domino.feature.online.OnlineHomeScreen
 import de.wtzg.domino.feature.online.OnlineHomeViewModel
-import de.wtzg.domino.AppViewModel
-import de.wtzg.domino.data.Settings
-import de.wtzg.domino.engine.GameMode
-import de.wtzg.domino.feature.learn.LearnScreen
-import de.wtzg.domino.feature.learn.LessonScreen
-import de.wtzg.domino.feature.learn.PuzzleScreen
-import de.wtzg.domino.feature.learn.PuzzleViewModel
-import de.wtzg.domino.feature.more.MoreScreen
 import de.wtzg.domino.feature.play.GameScreen
 import de.wtzg.domino.feature.play.GameSetupScreen
 import de.wtzg.domino.feature.play.GameViewModel
@@ -67,6 +71,7 @@ import de.wtzg.domino.feature.scorekeeper.ScoreGameScreen
 import de.wtzg.domino.feature.scorekeeper.ScoreHistoryScreen
 import de.wtzg.domino.feature.scorekeeper.ScoreKeeperViewModel
 import de.wtzg.domino.feature.scorekeeper.ScoreSetupScreen
+import de.wtzg.domino.protocol.Friend
 import kotlin.reflect.KClass
 
 private enum class Tab(val label: String, val icon: ImageVector, val route: Any, val routeClass: KClass<*>) {
@@ -77,10 +82,9 @@ private enum class Tab(val label: String, val icon: ImageVector, val route: Any,
 }
 
 @Composable
-fun DominoApp(appVm: AppViewModel, settings: Settings, intents: Flow<Intent>) {
+fun DominoApp(appVm: AppViewModel, settings: Settings) {
     val nav = rememberNavController()
-    // Links that arrive while the app is already open (invites, notifications).
-    LaunchedEffect(nav) { intents.collect { nav.handleDeepLink(it) } }
+    OpenLinksWhileRunning(nav)
     // Shared across screens: the game in progress and the score keeper.
     val gameVm = appViewModel { GameViewModel(it.savedGame, it.stats, it.settings) }
     val scoresVm = appViewModel { ScoreKeeperViewModel(it.scoreKeeper) }
@@ -132,6 +136,25 @@ fun DominoApp(appVm: AppViewModel, settings: Settings, intents: Flow<Intent>) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Links that arrive while the app is open (invites, notifications) open on top of what's
+ * there. (handleDeepLink would rebuild the whole back stack and restart the activity.)
+ * The link that started the app is handled by the NavHost itself.
+ */
+@Composable
+private fun OpenLinksWhileRunning(nav: NavHostController) {
+    val activity = LocalContext.current as? ComponentActivity ?: return
+    DisposableEffect(activity, nav) {
+        val listener = Consumer<Intent> { intent ->
+            val uri = intent.data ?: return@Consumer
+            val request = NavDeepLinkRequest.Builder.fromUri(uri).build()
+            if (nav.graph.hasDeepLink(request)) nav.navigate(request)
+        }
+        activity.addOnNewIntentListener(listener)
+        onDispose { activity.removeOnNewIntentListener(listener) }
     }
 }
 
@@ -219,7 +242,7 @@ private fun AppNavHost(
         }
         composable<PuzzleRoute> { e ->
             val mode = GameMode.valueOf(e.toRoute<PuzzleRoute>().mode)
-            val vm = appViewModel(key = "puzzle-${mode.name}") { PuzzleViewModel(mode, it.stats) }
+            val vm = appViewModel { PuzzleViewModel(mode, it.stats) }
             val state by vm.state.collectAsStateWithLifecycle()
             PuzzleScreen(state, vm::tapTile, vm::answer, vm::next, onBack = { nav.popBackStack() })
         }
@@ -269,45 +292,17 @@ private fun AppNavHost(
             LocalHome(nav, invite)
         }
         composable<LocalCreateRoute> {
-            val vm = appViewModel(key = "local-create") { OnlineHomeViewModel(it.local, it.settings) }
-            val s by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(s.open) {
-                s.open?.let { id ->
-                    vm.opened()
-                    nav.navigate(OnlineGameRoute(id, local = true)) { popUpTo<LocalCreateRoute> { inclusive = true } }
-                }
-            }
             // Everyone at a same-Wi-Fi game joins by QR code, so there's no public list to be on.
-            OnlineCreateScreen(
-                busy = s.busy,
-                allowPublic = false,
-                allowTurnLimit = true,
-                onBack = { nav.popBackStack() },
-                onCreate = vm::create,
-            )
+            CreateGame(nav, appViewModel { CreateGameViewModel(it.local) }, local = true, challenge = null)
         }
         composable<OnlineCreateRoute> { e ->
             val route = e.toRoute<OnlineCreateRoute>()
-            val vm = appViewModel(owner = onlineOwner(nav)) { OnlineHomeViewModel(it.online, it.settings) }
-            val s by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(s.open) {
-                s.open?.let { id ->
-                    vm.opened()
-                    nav.navigate(OnlineGameRoute(id)) { popUpTo<OnlineCreateRoute> { inclusive = true } }
-                }
-            }
-            OnlineCreateScreen(
-                busy = s.busy,
-                allowPublic = s.publicGames && route.challengeId == null,
-                allowTurnLimit = de.wtzg.domino.protocol.ServerFeatures.TURN_LIMITS in s.features,
-                onBack = { nav.popBackStack() },
-                onCreate = { req -> vm.create(req, listOfNotNull(route.challengeId)) },
-                challenge = route.challengeName,
-            )
+            val challenge = route.challengeId?.let { Friend(it, route.challengeName.orEmpty()) }
+            CreateGame(nav, appViewModel { CreateGameViewModel(it.online) }, local = false, challenge = challenge)
         }
         composable<FriendsRoute>(deepLinks = listOf(navDeepLink<FriendsRoute>(basePath = "dominoes://friends"))) { e ->
             val route = e.toRoute<FriendsRoute>()
-            val vm = appViewModel { FriendsViewModel(it.online) }
+            val vm = appViewModel { FriendsViewModel(it.online, route.server) }
             val s by vm.state.collectAsStateWithLifecycle()
             FriendsScreen(
                 state = s,
@@ -321,8 +316,8 @@ private fun AppNavHost(
         composable<OnlineGameRoute>(deepLinks = listOf(navDeepLink<OnlineGameRoute>(basePath = "dominoes://game"))) { e ->
             val route = e.toRoute<OnlineGameRoute>()
             val id = route.id
-            val vm = appViewModel(key = "online-$id-${route.local}") {
-                OnlineGameViewModel(id, if (route.local) it.local else it.online, local = route.local)
+            val vm = appViewModel {
+                OnlineGameViewModel(id, if (route.local) it.local else it.online, local = route.local, invite = route.invite)
             }
             val s by vm.state.collectAsStateWithLifecycle()
             OnlineGameScreen(
@@ -346,14 +341,33 @@ private fun AppNavHost(
     }
 }
 
-/** The online games list is shared with the create screen, so it lives on the list's back stack entry. */
+/** A new game; once created, its lobby replaces this screen. A [challenge] is invited from the lobby. */
 @Composable
-private fun onlineOwner(nav: NavHostController): androidx.lifecycle.ViewModelStoreOwner =
-    remember(nav) { runCatching { nav.getBackStackEntry<OnlineRoute>() }.getOrNull() } ?: checkNotNull(androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current)
+private fun CreateGame(nav: NavHostController, vm: CreateGameViewModel, local: Boolean, challenge: Friend?) {
+    val s by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(s.open) {
+        s.open?.let { id ->
+            vm.opened()
+            nav.navigate(OnlineGameRoute(id, local = local, invite = challenge?.playerId)) {
+                if (local) popUpTo<LocalCreateRoute> { inclusive = true } else popUpTo<OnlineCreateRoute> { inclusive = true }
+            }
+        }
+    }
+    OnlineCreateScreen(
+        busy = s.busy,
+        allowPublic = s.publicGames && !local && challenge == null,
+        allowTurnLimit = local || s.turnLimits,
+        onBack = { nav.popBackStack() },
+        onCreate = vm::create,
+        challenge = challenge?.name,
+        error = s.error,
+        onDismissError = vm::dismissError,
+    )
+}
 
 @Composable
 private fun LocalHome(nav: NavHostController, invite: LocalInvite?) {
-    val vm = appViewModel(key = "local-${invite?.code}") { LocalViewModel(it.local, it.localServer, it.localHost, it.settings, invite) }
+    val vm = appViewModel { LocalViewModel(it.local, it.localServer, it.localHost, it.settings, invite) }
     val s by vm.state.collectAsStateWithLifecycle()
     LocalScreen(
         state = s,

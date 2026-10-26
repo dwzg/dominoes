@@ -1,14 +1,15 @@
 package de.wtzg.domino.feature.online
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -19,8 +20,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,8 +57,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.wtzg.domino.protocol.Friend
 import de.wtzg.domino.protocol.FriendsView
+import de.wtzg.domino.ui.components.ConfirmDialog
+import de.wtzg.domino.ui.components.ErrorDialog
 import de.wtzg.domino.ui.components.SectionHeader
-import kotlinx.coroutines.delay
+import de.wtzg.domino.ui.components.shareText
 
 /**
  * Your friend code, adding friends, requests, and your friends with a button to challenge
@@ -82,12 +85,7 @@ fun FriendsScreen(
         }
     }
     // New requests show up without leaving the screen.
-    LaunchedEffect(state.available) {
-        while (state.available == true) {
-            delay(30_000)
-            vm.refresh()
-        }
-    }
+    RefreshWhileVisible(enabled = state.registered && state.available != false, refresh = vm::refresh)
 
     Scaffold(
         topBar = {
@@ -95,7 +93,7 @@ fun FriendsScreen(
                 title = { Text("Friends") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
-                    if (state.available == true) {
+                    if (state.registered && state.available != false) {
                         IconButton(onClick = vm::refresh) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
                     }
                 },
@@ -111,6 +109,16 @@ fun FriendsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            state.otherServer?.let { other ->
+                item {
+                    Text(
+                        "This friend link is for ${other.removePrefix("https://")}, but you play on " +
+                            "${state.serverUrl.removePrefix("https://")}. Friends need to be on the same server; " +
+                            "you can change yours under More, Settings.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             when {
                 !state.registered -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -131,14 +139,7 @@ fun FriendsScreen(
         }
     }
 
-    state.error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = vm::dismissError,
-            title = { Text("Something went wrong") },
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = vm::dismissError) { Text("OK") } },
-        )
-    }
+    state.error?.let { ErrorDialog(it, vm::dismissError) }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.friendsContent(
@@ -149,7 +150,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.friendsContent(
     onChallenge: (Friend) -> Unit,
 ) {
     item { YourCode(f.friendCode, state.serverUrl) }
-    item { AddFriend(initialCode.orEmpty(), state.busy, vm::add) }
+    item { AddFriend(initialCode.takeIf { state.otherServer == null }.orEmpty(), state.busy, state.added, vm::add) }
 
     if (f.requests.isNotEmpty()) {
         item { SectionHeader("Friend requests") }
@@ -183,12 +184,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.friendsContent(
             }
         }
         if (confirm) {
-            AlertDialog(
-                onDismissRequest = { confirm = false },
-                title = { Text("Remove ${p.name}?") },
-                text = { Text("You'll need to add each other again to send invites.") },
-                confirmButton = { TextButton(onClick = { confirm = false; vm.remove(p.playerId) }) { Text("Remove") } },
-                dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            ConfirmDialog(
+                title = "Remove ${p.name}?",
+                text = "You'll need to add each other again to send invites.",
+                confirmLabel = "Remove",
+                onConfirm = { confirm = false; vm.remove(p.playerId) },
+                onDismiss = { confirm = false },
             )
         }
     }
@@ -234,13 +235,15 @@ private fun YourCode(code: String, serverUrl: String) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
                 Button(
                     onClick = {
-                        val text = "Add me as a friend in Dominoes! My friend code is ${formatFriendCode(code)}, or tap: $link"
-                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-                        context.startActivity(Intent.createChooser(send, "Share your friend code"))
+                        context.shareText(
+                            "Add me as a friend in Dominoes! My friend code is ${formatFriendCode(code)}, or tap: $link",
+                            "Share your friend code",
+                        )
                     },
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null)
-                    Text("  Share")
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Share")
                 }
                 OutlinedButton(onClick = { showQr = !showQr }) { Text(if (showQr) "Hide QR code" else "Show QR code") }
             }
@@ -249,11 +252,13 @@ private fun YourCode(code: String, serverUrl: String) {
 }
 
 @Composable
-private fun AddFriend(initial: String, busy: Boolean, onAdd: (String) -> Unit) {
+private fun AddFriend(initial: String, busy: Boolean, added: Int, onAdd: (String) -> Unit) {
     val context = LocalContext.current
     var code by rememberSaveable { mutableStateOf(initial.let { c -> friendCodeFrom(c)?.let(::formatFriendCode) ?: c }) }
     var problem by rememberSaveable { mutableStateOf<String?>(null) }
-    val ready = friendCodeFrom(code) != null
+    // Cleared once a code was added, so a failed attempt keeps what you typed.
+    LaunchedEffect(added) { if (added > 0) code = "" }
+    val ready = friendCodeFrom(code) != null && !busy
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -263,10 +268,10 @@ private fun AddFriend(initial: String, busy: Boolean, onAdd: (String) -> Unit) {
                 placeholder = { Text("ABCD-2345") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (ready) { onAdd(code); code = "" } }),
+                keyboardActions = KeyboardActions(onDone = { if (ready) onAdd(code) }),
                 modifier = Modifier.weight(1f),
             )
-            OutlinedButton(onClick = { onAdd(code); code = "" }, enabled = ready && !busy) { Text("Add") }
+            OutlinedButton(onClick = { onAdd(code) }, enabled = ready) { Text("Add") }
             IconButton(
                 onClick = {
                     problem = null
@@ -287,17 +292,4 @@ private fun AddFriend(initial: String, busy: Boolean, onAdd: (String) -> Unit) {
 }
 
 @Composable
-private fun PersonRow(name: String, note: String?, actions: @Composable () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleMedium)
-                note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) { actions() }
-        }
-    }
-}
+private fun PersonRow(name: String, note: String?, actions: @Composable () -> Unit) = ListCard(title = name, note = note, actions = actions)

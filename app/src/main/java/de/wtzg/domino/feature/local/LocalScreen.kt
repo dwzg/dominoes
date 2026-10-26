@@ -48,13 +48,14 @@ import de.wtzg.domino.data.local.localInviteFrom
 import de.wtzg.domino.data.local.localServerFrom
 import de.wtzg.domino.feature.online.scanQr
 import de.wtzg.domino.protocol.Limits
+import de.wtzg.domino.ui.components.ErrorDialog
 
 /** Host a game on this phone, or join one hosted on another phone on the same Wi-Fi. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalScreen(
     state: LocalState,
-    vm: LocalViewModel,
+    vm: LocalActions,
     onBack: () -> Unit,
     onCreate: () -> Unit,
     onOpenGame: (String) -> Unit,
@@ -171,13 +172,7 @@ fun LocalScreen(
         }
     }
 
-    state.error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = vm::dismissError,
-            text = { Text(msg) },
-            confirmButton = { TextButton(onClick = vm::dismissError) { Text("OK") } },
-        )
-    }
+    state.error?.let { ErrorDialog(it, vm::dismissError) }
 }
 
 @Composable
